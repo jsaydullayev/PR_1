@@ -1,0 +1,6 @@
+# Backup arxivlar
+*.zip
+
+# OS / muhit
+.DS_Store
+Thumbs.db
