@@ -1,355 +1,334 @@
 <!DOCTYPE html>
-<html lang="uz">
+<html lang="uz-Cyrl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <!-- Qidiruv tizimlarida chiqmasligi uchun (maxfiy sovg'a) -->
-  <meta name="robots" content="noindex, nofollow">
-  <title>Parizoda 💗</title>
-  <meta name="theme-color" content="#FFE9F1">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💗</text></svg>">
-  <link rel="stylesheet" href="styles.css">
-  <style>
-    /* Bo'sh foto-uyalar uchun chiroyli pushti placeholder
-       (keyin haqiqiy rasm qo'yilsa, ustini bekitadi) */
-    image-slot {
-      background: linear-gradient(150deg, var(--petal), var(--lav));
-      border-radius: var(--r-sm); position: relative; cursor: pointer;
-    }
-    image-slot::after {
-      content: "📷"; position: absolute; inset: 0;
-      display: grid; place-items: center; font-size: 1.6rem; opacity: .45;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Паризода — сенга</title>
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body class="locked">
 
-  <!-- Orqa fonda suzuvchi yuraklar -->
-  <div class="bg-hearts" id="bgHearts"></div>
+<!-- floating background hearts -->
+<div class="bg-hearts" id="bgHearts" aria-hidden="true"></div>
 
-  <!-- ============================================================
-       LOGIN (faqat ikkingiz kira olasiz)
-       Foydalanuvchi: parizoda  yoki  jaxongir
-       Parol ikkalasiga ham:    jaxongir+parizoda
-       ============================================================ -->
-  <div id="login">
-    <div class="login-card">
-      <div class="login-heart">💗</div>
-      <div class="login-title">Parizoda</div>
-      <div class="login-sub">faqat ikkimiz uchun</div>
-      <form id="loginForm" autocomplete="off">
-        <label class="fld">
-          <span>Фойдаланувчи</span>
-          <input id="loginUser" name="user" autocomplete="username"
-                 placeholder="parizoda yoki jaxongir" autocapitalize="none" spellcheck="false">
-        </label>
-        <label class="fld">
-          <span>Парол</span>
-          <input id="loginPass" name="pass" type="password" autocomplete="current-password"
-                 placeholder="••••••••">
-        </label>
-        <div class="login-err" id="loginErr">Логин ёки парол нотўғри 🙈</div>
-        <button class="btn btn-yes login-btn" type="submit">Кириш 💕</button>
-      </form>
-      <div class="login-foot">сени кутиб турибди 🌸</div>
+<!-- =========================== LOGIN =========================== -->
+<div id="login">
+  <form id="loginForm" class="login-card" autocomplete="off">
+    <div class="login-heart">🤍</div>
+    <h1 class="login-title">Биз</h1>
+    <p class="login-sub">Давом этиш учун маълумотларингни кирит</p>
+    <label class="fld">
+      <span>Фойдаланувчи</span>
+      <input id="loginUser" type="text" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="username">
+    </label>
+    <label class="fld">
+      <span>Парол</span>
+      <input id="loginPass" type="password" placeholder="••••••••">
+    </label>
+    <div id="loginErr" class="login-err">Маълумотлар нотўғри. Қайта урин.</div>
+    <button class="btn btn-yes login-btn" type="submit">Кириш</button>
+    <p class="login-foot">Жаҳонгир ва Паризода учун</p>
+  </form>
+</div>
+
+<button class="logout-btn" data-logout aria-label="Чиқиш">⏏ чиқиш</button>
+
+<!-- =========================== PARIZODA VIEW =========================== -->
+<main id="viewParizoda">
+
+<!-- =========================== HERO =========================== -->
+<header class="hero" data-screen-label="Hero">
+  <div class="hero-ring"><span class="heart-ico">💗</span></div>
+  <div class="for-label">Сенга атаб</div>
+  <h1>Паризода</h1>
+  <p class="tagline">Бу саҳифани сен учун тайёрладим. Айта олмаган гапларимни шу ерга ёзиб қўйдим.</p>
+  <p class="signed">— Жаҳонгир</p>
+  <div class="scroll-cue">
+    <span>пастга сур</span>
+    <span class="chev">⌄</span>
+  </div>
+</header>
+
+<!-- =========================== PEACE / YARASH =========================== -->
+<section class="pad-sm" data-screen-label="Peace">
+  <div class="wrap">
+    <div class="peace-card reveal">
+      <div class="peace-emoji">🤍</div>
+      <h2 class="peace-title">Кел, ярашайлик</h2>
+      <p>Ҳозир орамизда бир оз совуқлик бор. Лекин мен буни иккимизнинг орамизга тўсиқ бўлишини истамайман. Мен сени севаман ва сенга <b>ишонаман</b> — бу сўзларнинг ортида ҳеч қандай шарт йўқ.</p>
+      <p>Жанжал икки одамни узоқлаштириш учун эмас — бир-бирини чуқурроқ тушуниш учун. Кел, гаплашиб, ҳаммасини орқада қолдирайлик.</p>
+      <p class="peace-sign">мен ҳар қандай вазиятда ҳам сени танлайман.</p>
     </div>
   </div>
+</section>
 
-  <!-- Chiqish (kirgandan keyin ko'rinadi) -->
-  <button class="logout-btn" data-logout>← чиқиш</button>
-
-  <!-- ============================================================
-       PARIZODA KO'RINISHI — asosiy romantik sahifa
-       ============================================================ -->
-  <main id="viewParizoda">
-
-    <!-- ---------- HERO ---------- -->
-    <section class="hero">
-      <div class="hero-ring"><span class="heart-ico">💗</span></div>
-      <div class="for-label">Севгилим Паризодага</div>
-      <h1>Паризода</h1>
-      <p class="tagline">Бу кичик сайт — фақат сен учун. Ҳар бир пиксели ичида сенга бўлган меҳрим бор.</p>
-      <p class="signed">— Жаҳонгир</p>
-      <div class="scroll-cue"><span>пастга сур</span><span class="chev">⌄</span></div>
-    </section>
-
-    <!-- ---------- HISOBLAGICHLAR ---------- -->
-    <section class="pad">
-      <div class="wrap reveal">
-        <div class="eyebrow">биз ҳақимизда</div>
-        <h2 class="sec-title">Биргаликдаги вақтимиз</h2>
-        <div class="counters">
-          <div class="count-card" data-since="met">
-            <div class="c-emoji">💞</div>
-            <div class="c-label">Биринчи учрашувимиздан бери</div>
-            <div class="c-date">2-феврал 2026, 22:00</div>
-            <div class="count-days"><span class="big">0</span> <span class="unit">кун</span></div>
-            <div class="count-hms">
-              <div class="hms-box"><b data-h="met">00</b><small>соат</small></div>
-              <div class="hms-box"><b data-m="met">00</b><small>дақиқа</small></div>
-              <div class="hms-box"><b data-s="met">00</b><small>сония</small></div>
-            </div>
-          </div>
-          <div class="count-card" data-since="rel">
-            <div class="c-emoji">💑</div>
-            <div class="c-label">Бирга бўлганимизга</div>
-            <div class="c-date">13-апрел 2026, 18:00</div>
-            <div class="count-days"><span class="big">0</span> <span class="unit">кун</span></div>
-            <div class="count-hms">
-              <div class="hms-box"><b data-h="rel">00</b><small>соат</small></div>
-              <div class="hms-box"><b data-m="rel">00</b><small>дақиқа</small></div>
-              <div class="hms-box"><b data-s="rel">00</b><small>сония</small></div>
-            </div>
-          </div>
+<!-- =========================== COUNTERS =========================== -->
+<section class="pad" style="background: var(--blush-2);" data-screen-label="Counters">
+  <div class="wrap">
+    <div class="divider"><span>❀</span></div>
+    <div class="eyebrow">вақт ўтади, лекин биз бормиз</div>
+    <h2 class="sec-title">Бирга босиб ўтган йўлимиз</h2>
+    <div class="counters">
+      <div class="count-card reveal">
+        <div class="c-emoji">✨</div>
+        <div class="c-label">Сени биринчи кўрган кунимдан</div>
+        <div class="c-date">2-феврал 2026, 22:00 — ҳаммаси шу лаҳзадан бошланган</div>
+        <div class="count-days" data-since="met"><span class="big">—</span> <span class="unit">кун</span></div>
+        <div class="count-hms">
+          <div class="hms-box"><b data-h="met">0</b><small>соат</small></div>
+          <div class="hms-box"><b data-m="met">0</b><small>дақиқа</small></div>
+          <div class="hms-box"><b data-s="met">0</b><small>сония</small></div>
         </div>
       </div>
-    </section>
-
-    <!-- ---------- МАКТУБ ---------- -->
-    <section class="pad" style="background: var(--blush-2);">
-      <div class="wrap reveal">
-        <div class="divider"><span>💌</span></div>
-        <h2 class="sec-title">Сенга мактуб</h2>
-        <div class="letter-stage">
-          <div class="envelope" id="envelope" tabindex="0" role="button" aria-label="Мактубни очиш">
-            <div class="env-body"></div>
-            <div class="env-flap"></div>
-            <div class="env-seal">💗</div>
-            <div class="env-hint">очиш учун бос</div>
-          </div>
-          <div class="letter-paper" id="letter">
-            <h3>Азизим Паризода,</h3>
-            <p>Сен ҳаётимга кирганингдан бери ҳар бир кун чиройлироқ бўлиб бормоқда. Кулгунг, овозинг, ёнимда борлигинг — менга энг катта бахт.</p>
-            <p>Баъзан аразлашамиз, лекин юрагим доим сеники. Сени қанчалик яхши кўришимни сўзлар билан айтиб бўлмайди — шунинг учун шу сайтни ясадим.</p>
-            <p>Ҳар доим ёнингдаман. 💗</p>
-            <div class="sign">сени севувчи — Жаҳонгир</div>
-          </div>
+      <div class="count-card reveal">
+        <div class="c-emoji">🤍</div>
+        <div class="c-label">Севгилим бўлганингдан бери</div>
+        <div class="c-date">13-апрель 2026, 18:00 — энг қадрли кунимиз</div>
+        <div class="count-days" data-since="rel"><span class="big">—</span> <span class="unit">кун</span></div>
+        <div class="count-hms">
+          <div class="hms-box"><b data-h="rel">0</b><small>соат</small></div>
+          <div class="hms-box"><b data-m="rel">0</b><small>дақиқа</small></div>
+          <div class="hms-box"><b data-s="rel">0</b><small>сония</small></div>
         </div>
-      </div>
-    </section>
-
-    <!-- ---------- СЕНИ СЕВИШИМ САБАБЛАРИ ---------- -->
-    <section class="pad">
-      <div class="wrap reveal">
-        <div class="eyebrow">юрагимдан</div>
-        <h2 class="sec-title">Сени севишимнинг сабаблари</h2>
-        <div class="reasons">
-          <div class="reason"><div class="num">1</div><p><b>Табассуминг</b> — кунимни ёритадиган энг гўзал нарса.</p></div>
-          <div class="reason"><div class="num">2</div><p><b>Меҳрибонлигинг</b> — ҳамма нарсада жуда самимийсан.</p></div>
-          <div class="reason"><div class="num">3</div><p><b>Кулгуларимиз</b> — сен билан энг оддий лаҳзалар ҳам махсус.</p></div>
-          <div class="reason"><div class="num">4</div><p><b>Сабринг</b> — мени тушунасан, ҳатто хато қилсам ҳам.</p></div>
-          <div class="reason"><div class="num">5</div><p><b>Кўзларинг</b> — уларга қараб турсам, вақт тўхтайди.</p></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- ВАҚТ ЧИЗИҒИ ---------- -->
-    <section class="pad" style="background: var(--blush-2);">
-      <div class="wrap reveal">
-        <div class="eyebrow">бизнинг ҳикоямиз</div>
-        <h2 class="sec-title">Биргаликдаги дамлар</h2>
-        <div class="timeline">
-          <div class="tl-item">
-            <div class="tl-date">2-феврал 2026</div>
-            <div class="tl-card">
-              <image-slot></image-slot>
-              <h4>Биринчи учрашув</h4>
-              <p>Ҳаммаси шу кундан бошланди. 💞</p>
-            </div>
-          </div>
-          <div class="tl-item">
-            <div class="tl-date">13-апрел 2026</div>
-            <div class="tl-card">
-              <image-slot></image-slot>
-              <h4>Расман бирга</h4>
-              <p>«Ҳа» деган кун — энг бахтли кунларимдан бири.</p>
-            </div>
-          </div>
-          <div class="tl-item">
-            <div class="tl-date">... давоми</div>
-            <div class="tl-card">
-              <image-slot></image-slot>
-              <h4>Олдинда яна минглаб кунлар</h4>
-              <p>Ҳаммаси сен билан. 🌸</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- ГАЛЕРЕЯ ---------- -->
-    <section class="pad">
-      <div class="wrap reveal">
-        <div class="eyebrow">хотиралар</div>
-        <h2 class="sec-title">Суратларимиз</h2>
-        <div class="gallery">
-          <image-slot class="tall"></image-slot>
-          <image-slot></image-slot>
-          <image-slot></image-slot>
-          <image-slot></image-slot>
-          <image-slot class="tall"></image-slot>
-        </div>
-        <div class="gallery-note">📷 бу ерга биргаликдаги суратларни қўйиш мумкин</div>
-      </div>
-    </section>
-
-    <!-- ---------- ЯРАШИШ КАРТАСИ ---------- -->
-    <section class="pad-sm">
-      <div class="wrap reveal">
-        <div class="peace-card">
-          <div class="peace-emoji">🕊️</div>
-          <div class="peace-title">Кел, яраштек</div>
-          <p>Аразлар вақтинчалик, лекин <b>биз</b> доимий. Ҳар қандай хафагарчиликдан кўра, сени ёнимда кўриш муҳимроқ.</p>
-          <div class="peace-sign">юрагим доим сеники 💗</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- БИЗНИНГ СУРАТ (юкланади ва сақланади) ---------- -->
-    <section class="pad">
-      <div class="wrap reveal">
-        <div class="eyebrow">фақат иккимиз</div>
-        <h2 class="sec-title">Энг севимли суратимиз</h2>
-        <div class="single-photo">
-          <div class="photo-frame">
-            <div class="photo-slot" id="usPhoto" tabindex="0" role="button" aria-label="Сурат қўйиш">
-              <img id="usPhotoImg" hidden alt="Иккимиз">
-              <div class="photo-empty" id="usPhotoEmpty">
-                <span class="pe-ico">📷</span>
-                <span>Энг ёқимли суратимизни шу ерга қўй 💗</span>
-              </div>
-              <button class="photo-change" id="usPhotoChange" hidden type="button" aria-label="Ўзгартириш">✎</button>
-            </div>
-            <input type="file" id="usPhotoInput" accept="image/*" hidden>
-          </div>
-          <div class="photo-cap">иккимиз 💕</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- ЎЙИН: севги ўлчагич + Ҳа/Йўқ ---------- -->
-    <section class="pad" style="background: var(--blush-2);">
-      <div class="wrap reveal">
-        <div class="eyebrow">кичик ўйин</div>
-        <h2 class="sec-title">Севги ўлчагич</h2>
-        <div class="game-card">
-          <div class="q">Мени қанчалик яхши кўрасан?</div>
-          <div class="sub">слайдерни сур 💗</div>
-          <div class="love-meter">
-            <input type="range" id="loveRange" min="0" max="100" value="50" aria-label="Севги ўлчагич">
-          </div>
-          <div class="meter-readout" id="meterOut">50%</div>
-          <div class="meter-msg" id="meterMsg"></div>
-
-          <div class="yesno">
-            <div class="yn-q">Кел, яраштекми? 🤍</div>
-            <div class="yn-btns">
-              <button class="btn btn-yes" id="btnYes" type="button">Ҳа 💗</button>
-              <button class="btn btn-no" id="btnNo" type="button">Йўқ</button>
-            </div>
-            <div class="yn-result" id="ynResult">Билардим 😍 мана шуни кутаётгандим!</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- ЎЙИН: Дон-дон зики (Тош-Қайчи-Қоғоз) ---------- -->
-    <section class="pad">
-      <div class="wrap reveal">
-        <div class="eyebrow">дон-дон зики</div>
-        <h2 class="sec-title">Тош · Қайчи · Қоғоз</h2>
-        <div class="rps-card">
-          <div class="rps-intro">Юрак гаров — ким ютади? 💗</div>
-          <div class="rps-rule">Ютган ўз шартини айтади. (огоҳлантириш: Жаҳонгир ютишни яхши кўради 😉)</div>
-          <div class="rps-arena">
-            <div class="rps-side you">
-              <div class="rps-hand" id="rpsYou">✊</div>
-              <div class="rps-name">Сен</div>
-            </div>
-            <div class="rps-vs">×</div>
-            <div class="rps-side me">
-              <div class="rps-hand" id="rpsMe">✊</div>
-              <div class="rps-name">Жаҳонгир</div>
-            </div>
-          </div>
-          <div class="rps-count" id="rpsCount">танлашингни кутяпман...</div>
-          <div class="rps-choices" id="rpsChoices">
-            <button class="rps-choice" type="button" data-move="tosh"><span class="emo">✊</span><span class="lbl">Тош</span></button>
-            <button class="rps-choice" type="button" data-move="qaychi"><span class="emo">✌️</span><span class="lbl">Қайчи</span></button>
-            <button class="rps-choice" type="button" data-move="qogoz"><span class="emo">✋</span><span class="lbl">Қоғоз</span></button>
-          </div>
-          <div class="rps-result" id="rpsResult">
-            <div class="rps-verdict" id="rpsVerdict">Жаҳонгир ютди! 🏆</div>
-            <div class="rps-tease">демак, шарт сеники 😊</div>
-            <div class="shart-box">
-              <div class="shart-label">★ шарт ★</div>
-              <div class="shart-text" id="shartText"></div>
-              <div class="shart-actions">
-                <button class="btn btn-yes" id="shartAccept" type="button">Қабул қиламан 💗</button>
-                <button class="btn btn-soft" id="rpsAgain" type="button">Яна 🔁</button>
-              </div>
-            </div>
-            <div class="rps-done" id="rpsDone">💌 Жаҳонгирга юборилди — у кўради 💗</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ---------- FOOTER ---------- -->
-    <footer class="footer">
-      <div class="heart-big">💗</div>
-      <div class="f-msg">Сени севаман, Паризода</div>
-      <div class="f-from">— Жаҳонгир, доим сеники</div>
-      <div class="f-tap">(шу ерга бос — юраклар отилади)</div>
-    </footer>
-  </main>
-
-  <!-- ============================================================
-       JAXONGIR KO'RINISHI — dashboard (Parizodaning javobi)
-       ============================================================ -->
-  <section id="viewJaxongir">
-    <div class="dash-wrap">
-      <div class="hero-ring dash-ring"><span class="heart-ico">💗</span></div>
-      <h1 class="dash-h1">Паризоданинг<br>жавоби</h1>
-      <div class="dash-card">
-        <span class="dash-label">Паризода сени қанчалик яхши кўради</span>
-        <div class="dash-pct" id="dashPct">—</div>
-        <div class="dash-bar"><div class="dash-fill" id="dashFill"></div></div>
-        <div class="dash-sub" id="dashSub">Паризода ҳали жавоб бермаган.</div>
-        <div class="dash-status wait" id="dashMade">
-          <span class="ds-ico">⌛</span> «Кел, яраштекми?» — ҳали жавоб кутилмоқда
-        </div>
-        <div class="dash-shart" id="dashShart" hidden></div>
-        <div class="dash-upd" id="dashUpd"></div>
-        <button class="btn btn-soft dash-refresh" id="dashRefresh" type="button">🔄 Янгилаш</button>
-        <div class="dash-note">Паризода ўз саҳифасида севги ўлчагични сурганда ёки шарт қабул қилганда — шу ерда кўринади. 💗</div>
       </div>
     </div>
-  </section>
-
-  <!-- ---------- Lightbox (suratni kattalashtirish) ---------- -->
-  <div class="lightbox" id="lightbox">
-    <button class="lb-close" id="lbClose" type="button" aria-label="Ёпиш">✕</button>
-    <img id="lbImg" alt="">
   </div>
+</section>
 
-  <!-- ---------- Musiqa tugmasi (faqat Parizoda ko'rinishida) ---------- -->
-  <button class="music-btn" id="musicBtn" type="button" aria-label="Мусиқа">
-    <span class="ring2"></span>
-    <span class="ico">🎵</span>
-  </button>
-  <div class="music-hint" id="musicHint">🎶 кучни ёқиб қўй 💕</div>
+<!-- =========================== LOVE LETTER =========================== -->
+<section class="pad" data-screen-label="Letter">
+  <div class="wrap">
+    <div class="divider"><span>✉</span></div>
+    <div class="eyebrow">фақат сенга</div>
+    <h2 class="sec-title">Сенга бир хатим бор</h2>
+    <div class="letter-stage">
+      <div class="envelope" id="envelope" role="button" tabindex="0" aria-label="Хатни очиш">
+        <div class="env-body"></div>
+        <div class="env-flap"></div>
+        <div class="env-seal">💗</div>
+        <div class="env-hint">очиш учун бос</div>
+      </div>
+      <article class="letter-paper" id="letter">
+        <h3>Азизим Паризода,</h3>
+        <p>Сен билан танишганимдан бери ҳаётимга маъно кирди. Сен мен учун ўткинчи ҳаяжон эмас, балки тинчлик ва ишончсан.</p>
+        <p>Ҳозир орамизда бир оз совуқлик борлигини биламан. Лекин шунга аминман: мен сендан воз кечмайман. Мен сени <b>севаман ва сенга ишонаман</b>.</p>
+        <p>Аразлар ўтиб кетади, лекин бир-биримизга бўлган ҳурмат қолади. Кел, гаплашиб, олдинга бирга юрайлик.</p>
+      </article>
+    </div>
+  </div>
+</section>
 
-  <!-- ============================================================
-       SCRIPTS
-       Firebase (config to'ldirilsa, ikki qurilmada sinxron ishlaydi).
-       Config bo'sh bo'lsa — avtomatik localStorage rejimi.
-       ============================================================ -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-  <script src="firebase-config.js"></script>
-  <script src="app.js"></script>
-  <script src="account.js"></script>
-  <script src="game-rps.js"></script>
+<!-- =========================== REASONS =========================== -->
+<section class="pad" style="background: var(--blush-2);" data-screen-label="Reasons">
+  <div class="wrap">
+    <div class="divider"><span>❤</span></div>
+    <div class="eyebrow">бир неча сабаб</div>
+    <h2 class="sec-title">Сени нега <span class="small">севаман</span></h2>
+    <div class="reasons" id="reasons">
+      <div class="reason"><div class="num">1</div><p>Сен ёнимда бўлсанг, дунё хотиржамроқ кўринади — <b>сен менинг тинчлигимсан</b>.</p></div>
+      <div class="reason"><div class="num">2</div><p>Сен билан энг оддий лаҳзалар ҳам <b>ҳаётимнинг энг қимматли хотираларига</b> айланади.</p></div>
+      <div class="reason"><div class="num">3</div><p>Меҳрибонлигинг ва самимийлигинг ёнида ўзимни <b>ишончда</b> ҳис қиламан.</p></div>
+      <div class="reason"><div class="num">4</div><p>Сен билан суҳбатлашганда, куннинг барча ташвиши <b>арзимас бўлиб қолади</b>.</p></div>
+      <div class="reason"><div class="num">5</div><p>Сен мени <b>яхшироқ инсон</b> бўлишга илҳомлантирасан.</p></div>
+      <div class="reason"><div class="num">6</div><p>Табиатингнинг барча қиррасини — кучли ва нозик томонларингни — <b>борлигича қабул қиламан</b>.</p></div>
+      <div class="reason"><div class="num">7</div><p>Келажакни режалаштирганимда, ҳар бир режада <b>сен борсан</b>.</p></div>
+      <div class="reason"><div class="num">8</div><p>Чунки сен — сенсан. Ва бу мен учун етарли — <b>энг қадрли сабаб</b>.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================== TIMELINE =========================== -->
+<section class="pad" data-screen-label="Timeline">
+  <div class="wrap">
+    <div class="divider"><span>✿</span></div>
+    <div class="eyebrow">биргаликдаги йўлимиз</div>
+    <h2 class="sec-title">Хотираларимиз</h2>
+    <div class="timeline" id="timeline">
+
+      <div class="tl-item">
+        <div class="tl-date">2-феврал 2026, 22:00</div>
+        <div class="tl-card">
+          <h4>Сени биринчи марта кўрдим</h4>
+          <p>Ўша оқшом оддий бошланган эди. Лекин кейинчалик у ҳаётимдаги энг муҳим кунлардан бири эканини англадим.</p>
+        </div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-date">13-апрель 2026, 18:00</div>
+        <div class="tl-card">
+          <h4>Бирга бўлишга қарор қилдик</h4>
+          <p>Иккимиз ҳам бу муносабатга онгли равишда «ҳа» дедик. Ўшандан буён бу йўлни биргаликда босиб келаяпмиз.</p>
+        </div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-date">бугун</div>
+        <div class="tl-card">
+          <h4>Синовлар ва садоқат</h4>
+          <p>Орамизда баъзан совуқлик бўлади, лекин бу бизни кучсизлантирмайди — аксинча, бир-биримизни яхшироқ тушунишга ўргатади. Мен ҳар қандай ҳолатда ҳам сени танлайман.</p>
+        </div>
+      </div>
+
+      <div class="tl-item">
+        <div class="tl-date">давоми бор...</div>
+        <div class="tl-card">
+          <h4>Бу — фақат бошланиши</h4>
+          <p>Олдинда биз бирга қурадиган кўп йиллар, кўп хотиралар бор.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- =========================== OUR PHOTO =========================== -->
+<section class="pad" style="background: var(--blush-2);" data-screen-label="Photo">
+  <div class="wrap">
+    <div class="divider"><span>📷</span></div>
+    <div class="eyebrow">иккимиз</div>
+    <h2 class="sec-title">Бизнинг суратимиз</h2>
+    <div class="single-photo reveal">
+      <div class="photo-frame">
+        <div class="photo-slot" id="usPhoto" role="button" tabindex="0" aria-label="Расм қўйиш">
+          <input type="file" id="usPhotoInput" accept="image/*" hidden>
+          <div class="photo-empty" id="usPhotoEmpty">
+            <span class="pe-ico">📷</span>
+            <span>Биргаликдаги суратимизни қўй</span>
+          </div>
+          <img id="usPhotoImg" alt="Биз" hidden>
+          <button class="photo-change" id="usPhotoChange" type="button" aria-label="Расмни ўзгартириш" hidden>✎</button>
+        </div>
+      </div>
+      <p class="photo-cap">Иккимиз бирга — энг қимматли суратим.</p>
+    </div>
+    <p class="gallery-note">Расм қўйиш учун устига бос, ўзгартириш учун ✎ тугмасини бос</p>
+  </div>
+</section>
+
+<!-- =========================== GAME =========================== -->
+<section class="pad" data-screen-label="Game">
+  <div class="wrap">
+    <div class="divider"><span>🎀</span></div>
+    <div class="eyebrow">иккимиз учун</div>
+    <h2 class="sec-title">Мени қанча севасан?</h2>
+
+    <div class="game-card reveal">
+      <div class="q">Севги ўлчагич</div>
+      <div class="sub">Сургични юрагинг айтган жойгача сур...</div>
+      <div class="love-meter">
+        <input type="range" id="loveRange" min="0" max="100" value="50" aria-label="севги ўлчагич">
+      </div>
+      <div class="meter-readout" id="meterOut">50%</div>
+      <div class="meter-msg" id="meterMsg">бироз кўпроқ...</div>
+
+      <div class="yesno">
+        <div class="yn-q">Кел, ярашайликми?</div>
+        <div class="yn-btns" id="ynBtns">
+          <button class="btn btn-yes" id="btnYes">Ҳа, ярашайлик</button>
+          <button class="btn btn-no" id="btnNo">Йўқ</button>
+        </div>
+        <div class="yn-result" id="ynResult">Раҳмат. Сени ҳеч қачон йўқотмайман — бу ваъдам.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================== DON-DON ZIKI =========================== -->
+<section class="pad" style="background: var(--blush-2);" data-screen-label="RPS">
+  <div class="wrap">
+    <div class="divider"><span>✊</span></div>
+    <h2 class="sec-title">Дон-дон зики</h2>
+
+    <div class="rps-card reveal">
+      <div class="rps-rule">Қоидамизни эслайсанми? Ютқазган — ютганнинг шартини бажаради. Қани, танла-чи...</div>
+
+      <div class="rps-arena">
+        <div class="rps-side you">
+          <div class="rps-hand" id="rpsYou">✊</div>
+          <div class="rps-name">Сен</div>
+        </div>
+        <div class="rps-vs">×</div>
+        <div class="rps-side me">
+          <div class="rps-hand" id="rpsMe">✊</div>
+          <div class="rps-name">Ман</div>
+        </div>
+      </div>
+
+      <div class="rps-count" id="rpsCount">танлашингни кутяпман...</div>
+
+      <div class="rps-choices" id="rpsChoices">
+        <button class="rps-choice" data-move="tosh" type="button"><span class="emo">✊</span><span class="lbl">Тош</span></button>
+        <button class="rps-choice" data-move="qaychi" type="button"><span class="emo">✌️</span><span class="lbl">Қайчи</span></button>
+        <button class="rps-choice" data-move="qogoz" type="button"><span class="emo">✋</span><span class="lbl">Қоғоз</span></button>
+      </div>
+
+      <div class="rps-result" id="rpsResult">
+        <div class="rps-verdict" id="rpsVerdict">Мен ютдим</div>
+        <div class="rps-tease" id="rpsTease">Энди, қоидамизга кўра, шартни бажарасан...</div>
+        <div class="shart-box">
+          <div class="shart-label">шартим</div>
+          <div class="shart-text" id="shartText"></div>
+        </div>
+        <div class="shart-actions">
+          <button class="btn btn-yes" id="shartAccept" type="button">Қабул қиламан</button>
+          <button class="btn btn-soft" id="rpsAgain" type="button">Яна ўйнаймиз</button>
+        </div>
+        <div class="rps-done" id="rpsDone">Мана шуни кутаётувдим. Сени севаман.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- =========================== FOOTER =========================== -->
+<footer class="footer" data-screen-label="Footer">
+  <div class="heart-big">🤍</div>
+  <div class="f-msg">Сени севаман<br>ва сенга ишонаман</div>
+  <div class="f-tap">экранга бос — юраклар учади</div>
+</footer>
+</main>
+
+<!-- =========================== JAXONGIR DASHBOARD =========================== -->
+<main id="viewJaxongir" data-screen-label="Dashboard">
+  <div class="dash-wrap">
+    <div class="hero-ring dash-ring"><span class="heart-ico">💖</span></div>
+    <div class="eyebrow">сенинг саҳифанг</div>
+    <h1 class="dash-h1">Паризоданинг жавоби</h1>
+
+    <div class="dash-card">
+      <div class="dash-label">Паризода сени қанча севиши</div>
+      <div class="dash-pct" id="dashPct">—</div>
+      <div class="dash-bar"><div class="dash-fill" id="dashFill"></div></div>
+      <p class="dash-sub" id="dashSub">Юкланмоқда...</p>
+    </div>
+
+    <div class="dash-status wait" id="dashMade"><span class="ds-ico">⌛</span> «Кел, ярашайликми?» — ҳали жавоб кутилмоқда</div>
+
+    <div class="dash-photo" id="dashPhotoWrap" hidden>
+      <div class="dash-photo-label">Паризода қўйган сурат</div>
+      <img id="dashPhotoImg" class="dash-photo-img" alt="Паризоданинг сурати">
+    </div>
+
+    <div class="dash-upd" id="dashUpd"></div>
+    <button class="btn btn-yes dash-refresh" id="dashRefresh">Янгилаш</button>
+    <p class="dash-note">Паризода ўз саҳифасида севги ўлчагични сурганда ёки «ярашайлик» деганда, бу саҳифа автоматик янгиланади.</p>
+  </div>
+</main>
+
+<!-- lightbox -->
+<div class="lightbox" id="lightbox">
+  <button class="lb-close" id="lbClose" aria-label="Ёпиш">✕</button>
+  <img id="lbImg" alt="">
+</div>
+
+<!-- music -->
+<button class="music-btn" id="musicBtn" aria-label="Мусиқа"><span class="ring2"></span><span class="ico">🎵</span></button>
+<div class="music-hint" id="musicHint">бизнинг қўшиғимиз</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js?v=7"></script>
+<script src="game-rps.js?v=5"></script>
+<script src="account.js?v=6"></script>
 </body>
 </html>

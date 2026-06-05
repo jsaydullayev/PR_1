@@ -179,13 +179,13 @@ function meterUpdate() {
   const v = +range.value;
   if (v >= 100) {
     meterOut.textContent = '∞';
-    meterMsg.textContent = 'беҳисоб! 💗 чегараси йўқ';
+    meterMsg.textContent = 'санаб бўлмайди — чегараси йўқ';
   } else {
     meterOut.textContent = v + '%';
-    if (v < 25) meterMsg.textContent = 'бундан кўпроқ-да 🙈';
-    else if (v < 55) meterMsg.textContent = 'яхшимисан 😊';
-    else if (v < 85) meterMsg.textContent = 'мана буни севги дейдилар 💕';
-    else meterMsg.textContent = 'деярли... яна бироз 😍';
+    if (v < 25) meterMsg.textContent = 'биламан, бундан кўпроқ';
+    else if (v < 55) meterMsg.textContent = 'яхши — лекин яна борига-чи?';
+    else if (v < 85) meterMsg.textContent = 'мана буни севги дейдилар';
+    else meterMsg.textContent = 'деярли юрагимча...';
   }
 }
 if (range) { range.addEventListener('input', meterUpdate); meterUpdate(); }

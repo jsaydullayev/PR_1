@@ -12,18 +12,35 @@
 
   // har g'alabada navbatma-navbat chiqadigan romantik shartlar
   const SHARTLAR = [
-    'Ҳозироқ менга қўнғироқ қилиб, «яраштик» дейсан 💗',
-    'Аразни бир четга суриб, мени маҳкам қучоқлайсан 🤗',
-    'Менга энг ширин табассумингни совға қиласан 😊',
-    'Бир-биримизга «кечир» деб, ҳаммасини унутамиз 🤍',
-    'Эртага биргаликда сайр қиламиз — фақат иккимиз 🌸',
-    'Ҳозир менга «Сизни севаман» деб ёзасан 💌',
-    'Қайта аразлашмасликка ваъда берамиз — мана шу қўл билан 🤝💗',
+    'Бугун менга қўнғироқ қилиб, овозингни эшиттирасан.',
+    'Аразни бир четга суриб, яна аввалгидек гаплашамиз.',
+    'Менга самимий табассумингни қайтариб берасан.',
+    'Бир-биримизга «кечир» деб, ҳаммасини орқада қолдирамиз.',
+    'Эртага биргаликда вақт ўтказамиз — фақат иккимиз.',
+    'Ҳозир менга «Сизни севаман» деб ёзасан.',
+    'Бундан кейин аразни узоқка чўзмасликка келишамиз.',
+    'Мени маҳкам қучоқлаб, ҳаммасини унутамиз.',
   ];
 
   let shartIdx = 0;
   let busy = false;
   let currentShart = '';
+  let lastShart = -1;
+
+  // shartni tanlash: "qucho'qlab..." (oxirgisi) bilinmas darajada ko'proq chiqadi
+  const SHART_W = [1, 1, 1, 1, 1, 1, 1, 1.8];
+  function pickShart() {
+    var total = 0, i;
+    for (i = 0; i < SHARTLAR.length; i++) if (i !== lastShart) total += SHART_W[i];
+    var r = Math.random() * total, idx = 0;
+    for (i = 0; i < SHARTLAR.length; i++) {
+      if (i === lastShart) continue;
+      r -= SHART_W[i];
+      if (r <= 0) { idx = i; break; }
+    }
+    lastShart = idx;
+    return SHARTLAR[idx];
+  }
 
   const youHand = document.getElementById('rpsYou');
   const meHand = document.getElementById('rpsMe');
@@ -59,7 +76,7 @@
     meHand.textContent = '✊';
     if (!rm) { youHand.classList.add('shake-hand'); meHand.classList.add('shake-hand'); }
 
-    const words = ['дон...', 'дон...', 'зики! 🎉'];
+    const words = ['дон...', 'дон...', 'зики!'];
     let i = 0;
     countEl.textContent = words[0];
     const step = rm ? 120 : 520;
@@ -82,11 +99,10 @@
     countEl.textContent = NAME[move] + ' × ' + NAME[oppMove];
 
     // romantik shart
-    currentShart = SHARTLAR[shartIdx % SHARTLAR.length];
+    currentShart = pickShart();
     shartText.textContent = currentShart;
-    shartIdx++;
 
-    verdict.textContent = 'Жаҳонгир ютди! 🏆';
+    verdict.textContent = 'Мен ютдим';
     result.classList.add('show');
     setDisabled(false);
     busy = false;

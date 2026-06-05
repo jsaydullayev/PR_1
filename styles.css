@@ -395,16 +395,19 @@ section { position: relative; z-index: 2; }
 .photo-frame { position: relative; }
 .photo-slot {
   position: relative; width: 100%; height: 360px; border-radius: 4px;
-  overflow: hidden; cursor: pointer; background: var(--blush-2);
+  overflow: hidden; cursor: pointer; background: var(--blush);
   display: grid; place-items: center;
 }
 .photo-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-empty {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  color: var(--ink-soft); font-family: var(--font-body); font-size: .9rem;
+  position: absolute; inset: 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  color: var(--rose-deep); font-family: var(--font-body); font-size: .92rem;
   text-align: center; padding: 20px; text-wrap: balance;
+  border: 2px dashed var(--rose); border-radius: 14px;
+  background: var(--blush-2);
 }
-.photo-empty .pe-ico { font-size: 2.6rem; }
+.photo-empty .pe-ico { font-size: 2.8rem; }
 .photo-change {
   position: absolute; top: 8px; right: 8px; width: 40px; height: 40px;
   border-radius: 50%; border: none; background: rgba(255,255,255,.92); color: var(--berry);
@@ -748,6 +751,14 @@ body.as-parizoda .music-hint { display: block; }
   line-height: 1.35; text-wrap: balance;
 }
 .dash-shart .dsh-time { font-size: .72rem; color: var(--ink-soft); margin-top: 10px; }
+.dash-photo { margin: 14px 0 6px; }
+.dash-photo-label {
+  font-family: var(--font-hand); font-size: 1.2rem; color: var(--rose-deep); margin-bottom: 8px;
+}
+.dash-photo-img {
+  width: 100%; border-radius: var(--r-md); box-shadow: var(--shadow-sm);
+  border: 1.5px solid rgba(255,159,190,.3); display: block;
+}
 .dash-upd { font-size: .72rem; color: var(--ink-soft); margin: 10px 0 18px; }
 .dash-refresh { width: auto; }
 .dash-note { font-size: .8rem; color: var(--ink-soft); margin-top: 18px; text-wrap: balance; }
