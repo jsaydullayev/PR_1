@@ -4,3 +4,7 @@
 # OS / muhit
 .DS_Store
 Thumbs.db
+
+# Wrangler keshi (Cloudflare) — repo'da turmasin
+.wrangler/
+node_modules/
