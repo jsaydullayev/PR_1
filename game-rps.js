@@ -1,46 +1,16 @@
 /* ============================================================
    Don-don ziki (Tosh-Qaychi-Qog'oz)
-   Jaxongir DOIM yutadi: opponent har doim o'yinchining
-   tanlovini yengadigan harakatni tanlaydi.
-   Yutgach — romantik "qayta yarashish" sharti chiqadi.
+   ADOLATLI o'yin (50/50): raqib tasodifiy tanlaydi.
+   Shartni SAYT EMAS — o'yinchining o'zi yozadi (Parizoda yoki Jaxongir).
    ============================================================ */
 (function () {
   const EMO = { tosh: '✊', qaychi: '✌️', qogoz: '✋' };
   const NAME = { tosh: 'Тош', qaychi: 'Қайчи', qogoz: 'Қоғоз' };
-  // o'yinchining harakatini yengadigan harakat (Jaxongir tanlaydi)
-  const BEATS = { tosh: 'qogoz', qaychi: 'tosh', qogoz: 'qaychi' };
+  const MOVES = ['tosh', 'qaychi', 'qogoz'];
+  // kalit qiymatni yengadi: tosh>qaychi, qaychi>qogoz, qogoz>tosh
+  const WINS = { tosh: 'qaychi', qaychi: 'qogoz', qogoz: 'tosh' };
 
-  // har g'alabada navbatma-navbat chiqadigan romantik shartlar
-  const SHARTLAR = [
-    'Бугун менга қўнғироқ қилиб, овозингни эшиттирасан.',
-    'Аразни бир четга суриб, яна аввалгидек гаплашамиз.',
-    'Менга самимий табассумингни қайтариб берасан.',
-    'Бир-биримизга «кечир» деб, ҳаммасини орқада қолдирамиз.',
-    'Эртага биргаликда вақт ўтказамиз — фақат иккимиз.',
-    'Ҳозир менга «Сизни севаман» деб ёзасан.',
-    'Бундан кейин аразни узоқка чўзмасликка келишамиз.',
-    'Мени маҳкам қучоқлаб, ҳаммасини унутамиз.',
-  ];
-
-  let shartIdx = 0;
   let busy = false;
-  let currentShart = '';
-  let lastShart = -1;
-
-  // shartni tanlash: "qucho'qlab..." (oxirgisi) bilinmas darajada ko'proq chiqadi
-  const SHART_W = [1, 1, 1, 1, 1, 1, 1, 1.8];
-  function pickShart() {
-    var total = 0, i;
-    for (i = 0; i < SHARTLAR.length; i++) if (i !== lastShart) total += SHART_W[i];
-    var r = Math.random() * total, idx = 0;
-    for (i = 0; i < SHARTLAR.length; i++) {
-      if (i === lastShart) continue;
-      r -= SHART_W[i];
-      if (r <= 0) { idx = i; break; }
-    }
-    lastShart = idx;
-    return SHARTLAR[idx];
-  }
 
   const youHand = document.getElementById('rpsYou');
   const meHand = document.getElementById('rpsMe');
@@ -48,6 +18,9 @@
   const choicesWrap = document.getElementById('rpsChoices');
   const result = document.getElementById('rpsResult');
   const verdict = document.getElementById('rpsVerdict');
+  const tease = document.getElementById('rpsTease');
+  const shartBox = document.querySelector('.shart-box');
+  const shartInput = document.getElementById('shartInput');
   const shartText = document.getElementById('shartText');
   const accept = document.getElementById('shartAccept');
   const again = document.getElementById('rpsAgain');
@@ -55,23 +28,20 @@
   if (!choicesWrap) return;
 
   const choiceBtns = Array.from(choicesWrap.querySelectorAll('.rps-choice'));
-
   function setDisabled(v) { choiceBtns.forEach((b) => { b.disabled = v; }); }
   function reduceMotion() { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
 
   function play(move) {
     if (busy) return;
     busy = true;
-    // reset previous result
     result.classList.remove('show');
     doneMsg.classList.remove('show');
     choiceBtns.forEach((b) => b.classList.toggle('picked', b.dataset.move === move));
     setDisabled(true);
 
-    const oppMove = BEATS[move]; // har doim yutadi
+    const oppMove = MOVES[Math.floor(Math.random() * 3)]; // adolatli: tasodifiy
     const rm = reduceMotion();
 
-    // "don-don-ziki" sanoq + qo'l silkitish
     youHand.textContent = '✊';
     meHand.textContent = '✊';
     if (!rm) { youHand.classList.add('shake-hand'); meHand.classList.add('shake-hand'); }
@@ -82,12 +52,8 @@
     const step = rm ? 120 : 520;
     const timer = setInterval(() => {
       i++;
-      if (i < words.length) {
-        countEl.textContent = words[i];
-      } else {
-        clearInterval(timer);
-        reveal(move, oppMove);
-      }
+      if (i < words.length) { countEl.textContent = words[i]; }
+      else { clearInterval(timer); reveal(move, oppMove); }
     }, step);
   }
 
@@ -98,16 +64,32 @@
     meHand.textContent = EMO[oppMove];
     countEl.textContent = NAME[move] + ' × ' + NAME[oppMove];
 
-    // romantik shart
-    currentShart = pickShart();
-    shartText.textContent = currentShart;
+    var outcome; // 'win' = Sen yutding, 'lose' = Man yutdim, 'draw'
+    if (move === oppMove) outcome = 'draw';
+    else if (WINS[move] === oppMove) outcome = 'win';
+    else outcome = 'lose';
 
-    verdict.textContent = 'Мен ютдим';
+    if (outcome === 'win') {
+      verdict.textContent = 'Сен ютдинг!';
+      if (tease) tease.textContent = 'Ютган — сен. Жаҳонгирга шартингни ўзинг ёз:';
+    } else if (outcome === 'lose') {
+      verdict.textContent = 'Мен ютдим';
+      if (tease) tease.textContent = 'Қоидамизга кўра, шартни ёзаман — шу ерга ёзиб қўй:';
+    } else {
+      verdict.textContent = 'Дуранг!';
+      if (tease) tease.textContent = 'Иккимиз ҳам тенг чиқдик — биргаликда бир шарт ёзинг:';
+    }
+
+    // shartni o'yinchi yozadi — saytdan avtomatik berilmaydi
+    if (shartBox) shartBox.style.display = '';
+    if (accept) { accept.style.display = ''; accept.disabled = false; accept.textContent = 'Шартни белгилаш'; }
+    if (shartText) { shartText.hidden = true; shartText.textContent = ''; }
+    if (shartInput) { shartInput.hidden = false; shartInput.value = ''; }
+
     result.classList.add('show');
     setDisabled(false);
     busy = false;
 
-    // yuraklar otilsin (app.js dagi global burst)
     if (typeof window.burst === 'function') {
       const r = meHand.getBoundingClientRect();
       window.burst(r.left + r.width / 2, r.top + r.height / 2, 8);
@@ -117,14 +99,15 @@
   choiceBtns.forEach((b) => b.addEventListener('click', () => play(b.dataset.move)));
 
   if (accept) accept.addEventListener('click', () => {
+    const txt = (shartInput && shartInput.value || '').trim();
+    if (!txt) { if (shartInput) shartInput.focus(); return; }
+    // yozilgan shartni ko'rsatamiz va saqlaymiz (sinxron)
+    if (shartText) { shartText.textContent = '«' + txt + '»'; shartText.hidden = false; }
+    if (shartInput) shartInput.hidden = true;
+    accept.style.display = 'none';
     doneMsg.classList.add('show');
-    // Jaxongir sahifasiga shartni yuborish (uning shaxsiy sahifasida ko'rinadi)
-    if (window.PJ && typeof window.PJ.setShart === 'function' && currentShart) {
-      window.PJ.setShart(currentShart);
-    }
-    if (typeof window.burst === 'function') {
-      window.burst(window.innerWidth / 2, window.innerHeight * 0.6, 16);
-    }
+    if (window.PJ && typeof window.PJ.setShart === 'function') window.PJ.setShart(txt);
+    if (typeof window.burst === 'function') window.burst(window.innerWidth / 2, window.innerHeight * 0.6, 14);
   });
 
   if (again) again.addEventListener('click', () => {
@@ -134,5 +117,8 @@
     countEl.textContent = 'танлашингни кутяпман...';
     youHand.textContent = '✊';
     meHand.textContent = '✊';
+    if (shartInput) { shartInput.value = ''; shartInput.hidden = false; }
+    if (shartText) { shartText.hidden = true; shartText.textContent = ''; }
+    if (accept) { accept.style.display = ''; accept.textContent = 'Шартни белгилаш'; }
   });
 })();

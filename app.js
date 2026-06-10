@@ -227,7 +227,7 @@ const musicHint = document.getElementById('musicHint');
 /* >>> QO'SHIQ: "song.mp3" faylini loyiha papkasiga qo'ying
        (Lana Del Rey — Chemtrails Over The Country Club).
        Fayl bo'lmasa, yumshoq kuy avtomatik chalinadi. <<< */
-const SONG_SRC = 'song.mp3';
+const SONG_SRC = (window.__resources && window.__resources.song) || 'song.mp3';
 
 const songAudio = new Audio();
 songAudio.src = SONG_SRC;
@@ -307,6 +307,9 @@ function setPlayingUI(on) {
   musicBtn.querySelector('.ico').textContent = on ? '🎶' : '🎵';
 }
 function startMusic() {
+  // standalone bund'da song manzili kech tayyor bo'lishi mumkin — qayta o'qiymiz
+  var resolved = (window.__resources && window.__resources.song) || SONG_SRC;
+  if (songAudio.src !== resolved && resolved) { try { songAudio.src = resolved; } catch (e) {} }
   // avval haqiqiy qo'shiqni urinib ko'ramiz
   const p = songAudio.play();
   if (p && p.then) {
