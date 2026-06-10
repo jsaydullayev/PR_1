@@ -225,9 +225,9 @@ const musicBtn = document.getElementById('musicBtn');
 const musicHint = document.getElementById('musicHint');
 
 /* >>> QO'SHIQ: "song.mp3" faylini loyiha papkasiga qo'ying
-       (Lana Del Rey — Chemtrails Over The Country Club).
+       (Vafodorim — @Uzmusiqam).
        Fayl bo'lmasa, yumshoq kuy avtomatik chalinadi. <<< */
-const SONG_SRC = (window.__resources && window.__resources.song) || 'song.mp3';
+const SONG_SRC = (window.__resources && window.__resources.song) || 'song.mp3?v=2';
 
 const songAudio = new Audio();
 songAudio.src = SONG_SRC;
