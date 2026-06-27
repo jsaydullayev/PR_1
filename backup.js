@@ -135,19 +135,17 @@
   async function doSendTelegram(json, btn) {
     var cfg = getTgConfig();
     if (!cfg.token || !cfg.chat) { alert('Token / chat id kerak.'); return; }
-    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+    var sizeKB = Math.round(json.length / 1024);
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending ' + sizeKB + 'KB...'; }
     var url = 'https://api.telegram.org/bot' + cfg.token + '/sendDocument';
     try {
       var res = await fetch(url, { method: 'POST', body: makeFd(json, cfg.chat) });
-      var ok = false, desc = '';
-      try { var j = await res.json(); ok = !!(j && j.ok); desc = (j && j.description) || ''; } catch (e) { ok = res.ok; }
-      alert(ok ? 'Sent ✓' : ('Error: ' + (desc || res.status)));
+      var txt = ''; try { txt = await res.text(); } catch (e) {}
+      var ok = false; try { ok = !!JSON.parse(txt).ok; } catch (e) {}
+      if (ok) alert('Sent OK (' + sizeKB + ' KB)');
+      else alert('TG error (' + sizeKB + ' KB) HTTP ' + res.status + ':\n' + String(txt).slice(0, 400));
     } catch (e) {
-      // CORS/tarmoq — no-cors bilan qayta (tasdiqlab bo'lmaydi)
-      try {
-        await fetch(url, { method: 'POST', body: makeFd(json, cfg.chat), mode: 'no-cors' });
-        alert('Sent (unconfirmed). Check Telegram.');
-      } catch (e2) { alert('Error: ' + e.message); }
+      alert('Network/CORS error (' + sizeKB + ' KB):\n' + (e && e.message));
     } finally { if (btn) { btn.disabled = false; btn.textContent = 'Send'; } }
   }
 
