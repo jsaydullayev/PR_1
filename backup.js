@@ -83,24 +83,25 @@
   function open() {
     injectStyle();
     if (!ov) buildModal();
-    var json = toJSON();
+    // MUHIM: har bosishda localStorage'dan ENG YANGI ma'lumotni o'qiymiz
+    // (Send va Download endi aynan bir xil to'liq ma'lumotni beradi).
 
     box.innerHTML = '';
     var h = document.createElement('h3'); h.textContent = 'backup'; box.appendChild(h);
 
     var sn = document.createElement('button'); sn.className = 'bkp-btn bkp-pri';
     sn.textContent = 'Send';
-    sn.addEventListener('click', function () { doSendTelegram(json, sn); });
+    sn.addEventListener('click', function () { doSendTelegram(toJSON(), sn); });
     box.appendChild(sn);
 
     var dl = document.createElement('button'); dl.className = 'bkp-btn bkp-sec';
     dl.textContent = 'Download';
-    dl.addEventListener('click', function () { doDownload(json); });
+    dl.addEventListener('click', function () { doDownload(toJSON()); });
     box.appendChild(dl);
 
     var cp = document.createElement('button'); cp.className = 'bkp-btn bkp-ghost';
     cp.textContent = 'Copy';
-    cp.addEventListener('click', function () { doCopy(json, cp); });
+    cp.addEventListener('click', function () { doCopy(toJSON(), cp); });
     box.appendChild(cp);
 
     box.appendChild(hr());
