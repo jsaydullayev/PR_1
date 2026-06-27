@@ -3,23 +3,31 @@
    ------------------------------------------------------------
    localStorage'ni FAQAT O'QIYDI (eksport hech narsani o'zgartirmaydi).
    Faqat "Restore" (import) — tasdiqdan keyin — yozadi.
-   Tugma "backup" deb nomlanadi; ichida ortiqcha izoh yo'q, faqat tugmalar.
+   Fayl to'liq, o'qiladigan JSON formatida (rasmlar ham ichida).
    ============================================================ */
 (function () {
   'use strict';
 
-  var KEYS = ['pj_answers', 'pj_session', 'pj_theme', 'pj_chat_seen'];
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 
-  function readAll() {
-    var out = {};
-    for (var i = 0; i < KEYS.length; i++) {
-      try {
-        var v = localStorage.getItem(KEYS[i]);
-        if (v !== null) out[KEYS[i]] = v;
-      } catch (e) {}
-    }
-    return out;
+  // To'liq, o'qiladigan JSON: asosiy ma'lumot "data" ichida nested,
+  // kichik sozlamalar "meta" ichida. (Eski "keys" formati restore'da ham qo'llab-quvvatlanadi.)
+  function buildBackupObject() {
+    var answersRaw = lsGet('pj_answers');
+    var data = null;
+    try { data = JSON.parse(answersRaw || 'null'); } catch (e) { data = answersRaw; }
+    var meta = {};
+    var t = lsGet('pj_theme'); if (t) meta.pj_theme = t;
+    var c = lsGet('pj_chat_seen'); if (c) meta.pj_chat_seen = c;
+    return {
+      _app: 'parizoda',
+      _backup_version: 2,
+      exportedAt: new Date().toISOString(),
+      data: data,   // pj_answers -> to'liq nested JSON (memories, rasmlar(base64), bucket, chat, ...)
+      meta: meta,   // kichik qo'shimcha (theme, chat_seen)
+    };
   }
+  function toJSON() { return JSON.stringify(buildBackupObject(), null, 2); }
 
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   function stamp() {
@@ -27,16 +35,6 @@
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
            '_' + pad(d.getHours()) + pad(d.getMinutes());
   }
-
-  function buildBackupObject() {
-    return {
-      _app: 'parizoda',
-      _backup_version: 1,
-      exportedAt: new Date().toISOString(),
-      keys: readAll(),
-    };
-  }
-  function toJSON() { return JSON.stringify(buildBackupObject(), null, 2); }
 
   // ---------- UI ----------
   function injectStyle() {
@@ -83,17 +81,16 @@
     box.innerHTML = '';
     var h = document.createElement('h3'); h.textContent = 'backup'; box.appendChild(h);
 
-    var dl = document.createElement('button'); dl.className = 'bkp-btn bkp-pri';
+    // Share — DOIM ko'rinadi (Telegram uchun asosiy yo'l)
+    var sh = document.createElement('button'); sh.className = 'bkp-btn bkp-pri';
+    sh.textContent = 'Share';
+    sh.addEventListener('click', function () { doShare(json); });
+    box.appendChild(sh);
+
+    var dl = document.createElement('button'); dl.className = 'bkp-btn bkp-sec';
     dl.textContent = 'Download';
     dl.addEventListener('click', function () { doDownload(json); });
     box.appendChild(dl);
-
-    if (navigator.share) {
-      var sh = document.createElement('button'); sh.className = 'bkp-btn bkp-sec';
-      sh.textContent = 'Share';
-      sh.addEventListener('click', function () { doShare(json); });
-      box.appendChild(sh);
-    }
 
     var cp = document.createElement('button'); cp.className = 'bkp-btn bkp-ghost';
     cp.textContent = 'Copy';
@@ -120,31 +117,42 @@
   function hr() { var h = document.createElement('hr'); h.className = 'bkp-hr'; return h; }
   function close() { if (ov) ov.classList.remove('show'); }
 
+  function fileName() { return 'backup-' + stamp() + '.json'; }
+
+  // Faylni ulashish — to'liq JSON fayl sifatida (Web Share API). Bo'lmasa download'ga o'tadi.
+  async function doShare(json) {
+    var fname = fileName();
+    // 1) Fayl bilan ulashish (canShare bilan tekshirib)
+    try {
+      if (navigator.canShare && typeof File !== 'undefined') {
+        var f1 = new File([json], fname, { type: 'application/json' });
+        if (navigator.canShare({ files: [f1] })) {
+          await navigator.share({ files: [f1], title: fname });
+          return;
+        }
+      }
+    } catch (e) {}
+    // 2) Fayl bilan ulashish (tekshiruvsiz — ba'zi WebView'lar shu yo'l bilan ishlaydi)
+    try {
+      if (navigator.share && typeof File !== 'undefined') {
+        var f2 = new File([json], fname, { type: 'application/json' });
+        await navigator.share({ files: [f2] });
+        return;
+      }
+    } catch (e) {}
+    // 3) Web Share yo'q -> download'ga o'tamiz
+    doDownload(json);
+  }
+
   function doDownload(json) {
     try {
       var blob = new Blob([json], { type: 'application/json' });
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
-      a.href = url; a.download = 'backup-' + stamp() + '.json';
+      a.href = url; a.download = fileName();
       document.body.appendChild(a); a.click();
       setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
     } catch (e) { alert('Failed. Use Copy.'); }
-  }
-
-  async function doShare(json) {
-    try {
-      var fname = 'backup-' + stamp() + '.json';
-      if (navigator.canShare) {
-        try {
-          var file = new File([json], fname, { type: 'application/json' });
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], title: 'backup' });
-            return;
-          }
-        } catch (e) {}
-      }
-      await navigator.share({ title: 'backup', text: json });
-    } catch (e) { /* bekor qilingan bo'lishi mumkin — jim */ }
   }
 
   // jim nusxalash — ma'lumot ekranda ko'rinmaydi
@@ -174,13 +182,21 @@
     rd.onload = function () {
       var obj;
       try { obj = JSON.parse(rd.result); } catch (e) { alert('Invalid file.'); return; }
-      var keys = obj && obj.keys;
-      if (!keys || typeof keys !== 'object' || typeof keys.pj_answers === 'undefined') {
-        alert('Invalid file.'); return;
-      }
+      // v2 (data/meta) yoki v1 (keys) — ikkalasini ham qabul qilamiz
+      var hasV2 = obj && Object.prototype.hasOwnProperty.call(obj, 'data');
+      var hasV1 = obj && obj.keys && typeof obj.keys === 'object';
+      if (!hasV2 && !hasV1) { alert('Invalid file.'); return; }
       if (!confirm('Restore from this file? Current data will be overwritten.')) return;
       try {
-        for (var k in keys) { if (keys.hasOwnProperty(k)) localStorage.setItem(k, keys[k]); }
+        if (hasV2) {
+          if (obj.data != null) {
+            localStorage.setItem('pj_answers', typeof obj.data === 'string' ? obj.data : JSON.stringify(obj.data));
+          }
+          var meta = obj.meta || {};
+          for (var mk in meta) { if (meta.hasOwnProperty(mk)) localStorage.setItem(mk, meta[mk]); }
+        } else {
+          for (var k in obj.keys) { if (obj.keys.hasOwnProperty(k)) localStorage.setItem(k, obj.keys[k]); }
+        }
         alert('Done.');
         location.reload();
       } catch (e) { alert('Error: ' + e.message); }
@@ -197,7 +213,6 @@
     document.body.appendChild(b);
   }
 
-  // qo'shimcha maxfiy ochish (URL #zaxira yoki yuqori-chap burchakka 6 marta bosish)
   function unlockedByUrl() {
     var s = ((location.hash || '') + ' ' + (location.search || '')).toLowerCase();
     return s.indexOf('zaxira') !== -1 || s.indexOf('backup') !== -1;
@@ -216,7 +231,7 @@
 
   function boot() {
     injectStyle();
-    addFab();            // "backup" tugmasi doim ko'rinadi
+    addFab();
     armSecretGesture();
     if (unlockedByUrl()) open();
   }
