@@ -53,14 +53,24 @@
     mPhotoInput.addEventListener('change', onPhotoPick);
   }
 
-  async function compress(file) {
-    const max = 1000, q = 0.8;
-    const bmp = await createImageBitmap(file);
+  function encode(bmp, max, q) {
     const s = Math.min(1, max / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * s)), h = Math.max(1, Math.round(bmp.height * s));
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     c.getContext('2d').drawImage(bmp, 0, 0, w, h);
     return c.toDataURL('image/jpeg', q);
+  }
+  // Har xotira alohida Firestore hujjati (1 MiB limit) -> ~900KB budjetga sig'guncha kichraytiramiz.
+  async function compress(file) {
+    const budget = 900 * 1024;
+    const bmp = await createImageBitmap(file);
+    let max = 1000, q = 0.8;
+    let url = encode(bmp, max, q);
+    while (url.length > budget && (q > 0.4 || max > 480)) {
+      if (q > 0.45) q -= 0.1; else max = Math.round(max * 0.85);
+      url = encode(bmp, max, q);
+    }
+    return url;
   }
   async function onPhotoPick() {
     const f = mPhotoInput.files && mPhotoInput.files[0]; if (!f) return;

@@ -197,13 +197,16 @@
         } else {
           for (var k in obj.keys) { if (obj.keys.hasOwnProperty(k)) localStorage.setItem(k, obj.keys[k]); }
         }
-        // Firebase rejimida: localStorage'ga yozish yetarli emas — bulutga ham yuklaymiz,
-        // aks holda qayta yuklanganda remote ma'lumot localStorage'ni qayta yozadi.
+        // Firebase rejimida: localStorage yetarli emas — bulutga AVTORITAR yozamiz
+        // (backup'da yo'q yozuvlar o'chiriladi) va commit TUGAGACH qayta yuklaymiz,
+        // aks holda eski remote yangi localStorage'ni bosib ketadi.
         var fbMode = false;
         try { fbMode = window.PJ && PJ.mode && PJ.mode() === 'firebase'; } catch (e) {}
-        if (fbMode && PJ.uploadLocalToCloud) {
-          try { PJ.uploadLocalToCloud(); } catch (e) {}
-          alert('Done (cloud). Yuklanmoqda...'); setTimeout(function () { location.reload(); }, 1500);
+        if (fbMode && PJ.restoreToCloud) {
+          var p = null; try { p = PJ.restoreToCloud(); } catch (e) {}
+          if (p && p.then) {
+            p.then(function (ok) { alert(ok ? 'Done (cloud).' : 'Cloud xato — qayta urinib ko\'ring.'); location.reload(); });
+          } else { alert('Done.'); location.reload(); }
         } else {
           alert('Done.'); location.reload();
         }
