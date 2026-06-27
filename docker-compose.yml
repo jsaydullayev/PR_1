@@ -1,0 +1,35 @@
+# Parizoda — PostgreSQL + FastAPI (API + SSE + statik sayt), bitta portda (8090).
+# Serverda ishga tushirish:  git pull && docker compose up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pari
+      POSTGRES_PASSWORD: pari_secret_2026
+      POSTGRES_DB: parizoda
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pari -d parizoda"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://pari:pari_secret_2026@db:5432/parizoda
+      API_TOKEN: "pari-2026-7f3a9c"   # frontend (index.html) shu tokenni X-Auth bilan yuboradi
+      STATIC_DIR: /srv/static
+    ports:
+      - "8090:8090"
+
+volumes:
+  pgdata:

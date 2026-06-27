@@ -15,3 +15,7 @@ node_modules/
 .design-canvas.state.json
 design-canvas.jsx
 UI Konsept.html
+
+# Python
+__pycache__/
+*.pyc

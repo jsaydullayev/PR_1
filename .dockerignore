@@ -1,0 +1,13 @@
+.git
+.gitignore
+node_modules
+.wrangler
+*.md
+JSON.md
+backup-*.json
+Parizoda.html
+design-canvas.jsx
+UI Konsept.html
+.thumbnail
+.design-canvas.state.json
+.claude

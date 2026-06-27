@@ -1,8 +1,8 @@
 /* ============================================================
    Parizoda — login + 2 sahifa + sinxron javob/rasm
-   Saqlash: Firebase Firestore (config to'ldirilgan bo'lsa) yoki
-   localStorage (zaxira). Firebase'da javob va rasm ikkala
-   qurilmada real-vaqtda sinxron ko'rinadi.
+   Saqlash: SERVER (FastAPI + PostgreSQL). Ma'lumot serverdagi bazada;
+   o'zgarish SSE (/api/events) orqali ikkala qurilmada DARHOL ko'rinadi.
+   localStorage faqat tezkor ko'rsatish (kesh) uchun ishlatiladi.
    ============================================================ */
 (function () {
   const LS_SESSION = 'pj_session';
@@ -12,319 +12,116 @@
     jaxongir: { pw: 'parizodam', view: 'jaxongir' },
   };
 
-  /* ---------- STORE: Firebase yoki localStorage ---------- */
+  /* ---------- STORE: server (FastAPI + PostgreSQL) + SSE real-time ---------- */
   const Store = (function () {
     const BLANK = { lovePercent: null, madeUp: false, madeUpAt: null, photo: null, shart: null, shartAt: null, memories: {}, bucket: [], chat: [], updatedAt: null };
     let data = Object.assign({}, BLANK, { memories: {}, bucket: [], chat: [] });
     let cb = null;
-    let mode = 'local';
-    let fbRef = null;
-    let memCol = null, chatCol = null;   // Firestore subkolleksiyalar (1 MiB limitni chetlab o'tish uchun)
-    let mainSeen = false, migrated = false;
-    // XAVFSIZLIK: remote -> localStorage ko'zgu faqat migratsiya hal bo'lgach yoqiladi,
-    // aks holda bo'sh remote birinchi snapshotda localStorage tarixini o'chirib yuboradi.
-    let lsMirrorReady = false;
-    let lsCorrupt = false;   // pj_answers buzilgan bo'lsa — ko'zgu/migratsiya to'xtaydi (xom nusxa saqlanadi)
-    const LS = 'pj_answers';
-    const MIGR_FLAG = 'pj_fb_migrated';
+    const mode = 'server';
+    const LS = 'pj_answers';                 // mahalliy kesh (tezkor ko'rsatish + offline ko'rinish)
     const listeners = [];
+    const API = (window.PARI_API_BASE || '');
+    const TOKEN = (window.PARI_API_TOKEN || '');
 
-    function readLS() {
-      var raw = null;
-      try { raw = localStorage.getItem(LS); } catch (e) { return {}; }
-      if (!raw) return {};
-      try { return JSON.parse(raw) || {}; }
-      catch (e) {
-        lsCorrupt = true;
-        try { if (!localStorage.getItem('pj_answers_corrupt')) localStorage.setItem('pj_answers_corrupt', raw); } catch (e2) {}
-        console.warn('pj_answers buzilgan — xom nusxa pj_answers_corrupt ga saqlandi');
-        return {};
-      }
-    }
-    function writeLS() {
-      // XAVFSIZLIK: firebase rejimida migratsiya tasdiqlanguncha localStorage'ga TEGMAYMIZ
-      // (bo'sh/qisman in-memory data tarixni o'chirib yubormasligi uchun).
-      if (mode === 'firebase' && !lsMirrorReady) return;
-      try { localStorage.setItem(LS, JSON.stringify(data)); }
-      catch (e) {
-        try { if (typeof toast === 'function') toast('Сақлаб бўлмади — хотира тўлди'); } catch (e2) {}
-        console.warn('writeLS xato:', e && e.name);
-      }
-    }
+    function readLS() { try { return JSON.parse(localStorage.getItem(LS) || 'null') || {}; } catch (e) { return {}; } }
+    function writeLS() { try { localStorage.setItem(LS, JSON.stringify(data)); } catch (e) { try { toast('Сақлаб бўлмади — хотира тўлди'); } catch (e2) {} } }
     function normalize() { if (!data.memories || typeof data.memories !== 'object') data.memories = {}; if (!Array.isArray(data.bucket)) data.bucket = []; if (!Array.isArray(data.chat)) data.chat = []; }
     function emit() { normalize(); if (cb) cb(data); for (var i = 0; i < listeners.length; i++) { try { listeners[i](data); } catch (e) {} } }
+    function toastSafe(msg) { try { toast(msg || 'Серверга сақланмади — интернетни текширинг'); } catch (e) {} }
 
-    // Migratsiyadan oldin remote snapshot seed (localStorage) ustiga yozilmasligi uchun union:
-    // id bo'yicha birlashtiramiz, 'at' kattasi (yangirog'i) yutadi. Hech narsa yo'qolmaydi.
-    function unionMemories(a, b) {
-      const byId = {};
-      function add(map) {
-        Object.keys(map || {}).forEach(function (k) {
-          (map[k] || []).forEach(function (e) {
-            if (!e) return;
-            const id = e.id ? String(e.id) : ('x_' + k + '_' + (e.at || 0));
-            const prev = byId[id];
-            if (!prev || (e.at || 0) >= (prev.e.at || 0)) byId[id] = { k: k, e: e };
-          });
-        });
-      }
-      add(a); add(b);
-      const out = {};
-      Object.keys(byId).forEach(function (id) { var x = byId[id]; (out[x.k] = out[x.k] || []).push(x.e); });
-      return out;
+    function apiGet(path) {
+      return fetch(API + path, { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     }
-    function unionChat(a, b) {
-      const byId = {};
-      (a || []).concat(b || []).forEach(function (m) {
-        if (!m) return;
-        const id = m.id ? String(m.id) : ('x_' + (m.at || 0));
-        const prev = byId[id];
-        if (!prev || (m.at || 0) >= (prev.at || 0)) byId[id] = m;
-      });
-      return Object.keys(byId).map(function (id) { return byId[id]; }).sort(function (x, y) { return (x.at || 0) - (y.at || 0); });
+    function apiSend(method, path, body) {
+      return fetch(API + path, {
+        method: method,
+        headers: { 'Content-Type': 'application/json', 'X-Auth': TOKEN },
+        body: body ? JSON.stringify(body) : undefined,
+      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json().catch(function () { return {}; }); });
     }
 
-    // Firebase main hujjatdan FAQAT skalyar maydonlar; memories/chat subkolleksiyalardan keladi (1 MiB limit uchun).
-    function applyMain(v) {
-      data.lovePercent = (v.lovePercent != null) ? v.lovePercent : null;
-      data.madeUp = !!v.madeUp;
-      data.madeUpAt = (v.madeUpAt != null) ? v.madeUpAt : null;
-      data.photo = (v.photo != null) ? v.photo : null;
-      data.shart = (v.shart != null) ? v.shart : null;
-      data.shartAt = (v.shartAt != null) ? v.shartAt : null;
-      data.bucket = Array.isArray(v.bucket) ? v.bucket : [];
-      if (v.updatedAt != null) data.updatedAt = v.updatedAt;
+    function setServerState(s) {
+      data = Object.assign({}, BLANK, s);
+      normalize();
+      writeLS();          // keshni yangilab boramiz
+      emit();
+    }
+    function refresh() {
+      return apiGet('/api/state').then(setServerState).catch(function (e) { console.warn('state load xato:', e && e.message); });
+    }
+
+    // --- real-time: SSE (server push) + xavfsizlik uchun kam-chastotali version-poll ---
+    var es = null, pollTimer = null;
+    function connectSSE() {
+      try {
+        es = new EventSource(API + '/api/events');
+        es.addEventListener('update', function () { refresh(); });
+        // EventSource xato bo'lsa o'zi qayta ulanadi — alohida ishlov shart emas.
+      } catch (e) { /* brauzer SSE'ni qo'llamasa — quyidagi poll qoplaydi */ }
+      clearInterval(pollTimer);
+      pollTimer = setInterval(function () {
+        apiGet('/api/version').then(function (v) {
+          if (v && v.updatedAt && v.updatedAt !== data.updatedAt) refresh();
+        }).catch(function () {});
+      }, 20000);
     }
 
     function init(onChange) {
       cb = onChange;
-      const cfg = window.FIREBASE_CONFIG || {};
-      const ready = cfg.apiKey && cfg.apiKey.length > 10 && window.firebase && firebase.firestore;
-      if (ready) {
-        try {
-          if (!firebase.apps.length) firebase.initializeApp(cfg);
-          const d = window.COUPLE_DOC || { collection: 'couple', id: 'us' };
-          fbRef = firebase.firestore().collection(d.collection).doc(d.id);
-          memCol = fbRef.collection('memories');
-          chatCol = fbRef.collection('chat');
-          mode = 'firebase';
-          // Darhol mavjud (localStorage) ma'lumotni ko'rsatamiz; snapshot keyin aniqlashtiradi.
-          data = Object.assign({}, BLANK, readLS()); normalize();
-          // 1) asosiy hujjat \u2014 skalyar maydonlar + asosiy rasm + bucket
-          fbRef.onSnapshot(function (snap) {
-            var remoteMain = snap.exists ? snap.data() : null;
-            if (!mainSeen) { mainSeen = true; maybeMigrate(remoteMain); }
-            // Bo'sh remote'ni (migratsiyadan oldin) seed ma'lumot ustiga yozmaymiz.
-            if (remoteMain || lsMirrorReady) applyMain(remoteMain || {});
-            writeLS(); emit(); // writeLS o'zi gated (migratsiyadan oldin yozmaydi)
-          }, function (err) { console.warn('Firestore main xato:', err && err.code); });
-
-          // 2) memories subkolleksiya \u2014 har xotira alohida hujjat
-          memCol.onSnapshot(function (qs) {
-            const map = {};
-            var maxAt = 0;
-            qs.forEach(function (doc) {
-              const e = doc.data() || {};
-              const k = e.dateKey || '0000-00-00';
-              if ((e.at || 0) > maxAt) maxAt = e.at || 0;
-              (map[k] = map[k] || []).push({
-                id: e.id || doc.id, text: e.text || '', photo: e.photo || null,
-                author: e.author || '', at: e.at || 0,
-              });
-            });
-            // Migratsiya tasdiqlangach remote = haqiqat; undan oldin seed'ni saqlab union qilamiz.
-            data.memories = lsMirrorReady ? map : unionMemories(data.memories, map);
-            if (maxAt > (data.updatedAt || 0)) data.updatedAt = maxAt;
-            writeLS(); emit();
-          }, function (err) { console.warn('Firestore memories xato:', err && err.code); });
-
-          // 3) chat subkolleksiya \u2014 har xabar alohida hujjat
-          chatCol.onSnapshot(function (qs) {
-            const arr = [];
-            var maxAt = 0;
-            qs.forEach(function (doc) { var m = doc.data() || {}; m.id = m.id || doc.id; if ((m.at || 0) > maxAt) maxAt = m.at || 0; arr.push(m); });
-            arr.sort(function (a, b) { return (a.at || 0) - (b.at || 0); });
-            data.chat = lsMirrorReady ? arr : unionChat(data.chat, arr);
-            if (maxAt > (data.updatedAt || 0)) data.updatedAt = maxAt;
-            writeLS(); emit();
-          }, function (err) { console.warn('Firestore chat xato:', err && err.code); });
-          console.log('%cParizoda: Firebase rejimi yoqildi 💗', 'color:#D6537E');
-        } catch (e) { console.warn('Firebase init xato, localStorage rejimi:', e); mode = 'local'; }
-      }
-      if (mode === 'local') {
-        data = Object.assign({}, BLANK, readLS());
-        window.addEventListener('storage', function (e) { if (e.key === LS) { data = Object.assign({}, BLANK, readLS()); emit(); } });
-        setTimeout(emit, 0);
-      }
+      // 1) keshdan darhol ko'rsatamiz (instant paint)
+      data = Object.assign({}, BLANK, readLS()); normalize(); setTimeout(emit, 0);
+      // 2) serverdan haqiqiy holat
+      refresh();
+      // 3) real-time ulanish
+      connectSSE();
+      console.log('%cParizoda: server rejimi (FastAPI + PostgreSQL) 💗', 'color:#D6537E');
     }
 
-    // ---------- migratsiya: localStorage -> Firebase (union-merge, qurilmaga bir marta) ----------
-    // Local ma'lumot Firebase'ga qo'shiladi (id bo'yicha union — hech narsa o'chmaydi).
-    // localStorage faqat remote to'la bo'lgach ko'zgu qilinadi; HECH QACHON bo'sh remote bilan o'chmaydi.
-    function maybeMigrate(remoteMain) {
-      if (migrated) return;
-      migrated = true;
-      if (lsCorrupt) { console.warn('localStorage buzilgan — migratsiya/ko\'zgu to\'xtatildi (xom nusxa saqlandi)'); return; }
-      var already = false; try { already = !!localStorage.getItem(MIGR_FLAG); } catch (e) {}
-      const ls = readLS(); // localStorage hali butun (writeLS gate bilan to'xtatilgan)
-      const hasLocal = ls && (ls.updatedAt || ls.photo || ls.shart || ls.lovePercent != null ||
-        (ls.memories && Object.keys(ls.memories).length) || (ls.chat && ls.chat.length) || (ls.bucket && ls.bucket.length));
-      // Bu qurilmada allaqachon yuklangan, YOKI yuklaydigan local ma'lumot yo'q -> remote'ni qabul qilamiz.
-      if (already || !hasLocal) {
-        lsMirrorReady = true;
-        if (remoteMain) { try { localStorage.setItem(MIGR_FLAG, '1'); } catch (e) {} }
-        return;
-      }
-      // Local ma'lumot bor va bu qurilmada hali yuklanmagan -> additiv union-merge.
-      // Tartibdan qat'i nazar hech qaysi tomon ma'lumoti yo'qolmaydi (skalyarlar newest-wins).
-      uploadAll(ls, remoteMain); // muvaffaqiyatdan keyin lsMirrorReady = true va MIGR_FLAG = 1
-    }
-
-    // localStorage'dagi ma'lumotni Firebase'ga ADDITIV yuklash. Skalyarlar: bo'sh qiymat bilan
-    // remote'ni o'chirmaymiz va eski local yangi remote'ni bosmaydi. memories/chat: merge (union).
-    function uploadAll(ls, remoteMain) {
-      if (mode !== 'firebase' || !fbRef) return Promise.resolve(false);
-      try {
-        const batch = firebase.firestore().batch();
-        const remoteNewer = remoteMain && (remoteMain.updatedAt || 0) > (ls.updatedAt || 0);
-        if (!remoteNewer) {
-          var mainOut = {};
-          if (ls.lovePercent != null) mainOut.lovePercent = ls.lovePercent;
-          if (ls.madeUp) { mainOut.madeUp = true; if (ls.madeUpAt) mainOut.madeUpAt = ls.madeUpAt; }
-          if (ls.photo) mainOut.photo = ls.photo;
-          if (ls.shart) { mainOut.shart = ls.shart; if (ls.shartAt) mainOut.shartAt = ls.shartAt; }
-          if (Array.isArray(ls.bucket) && ls.bucket.length) mainOut.bucket = ls.bucket;
-          mainOut.updatedAt = ls.updatedAt || Date.now();
-          batch.set(fbRef, mainOut, { merge: true });
-        }
-        const mem = ls.memories || {};
-        Object.keys(mem).forEach(function (k) {
-          (mem[k] || []).forEach(function (e) {
-            if (!e || !e.id) return;
-            batch.set(memCol.doc(String(e.id)), {
-              dateKey: k, id: e.id, text: e.text || '', photo: e.photo || null,
-              author: e.author || '', at: e.at || 0,
-            }, { merge: true });
-          });
-        });
-        (ls.chat || []).forEach(function (m) { if (m && m.id) batch.set(chatCol.doc(String(m.id)), m, { merge: true }); });
-        return batch.commit().then(function () {
-          try { localStorage.setItem(MIGR_FLAG, '1'); } catch (e) {}
-          lsMirrorReady = true; // endi remote to'la — localStorage'ni ko'zgu qilsa xavfsiz
-          console.log('%cParizoda: localStorage -> Firebase migratsiya bajarildi', 'color:#1a9');
-          return true;
-        }).catch(function (e) {
-          migrated = false; // qayta urinishga ruxsat (boshqa marta init bo'lganda)
-          // UI bo'sh qolmasin: in-memory'ni localStorage'dan qayta tiklaymiz. Ko'zgu yopiq qoladi -> LS xavfsiz.
-          data = Object.assign({}, BLANK, readLS()); normalize(); emit();
-          console.warn('Migratsiya xato (localStorage saqlanib qoldi):', e && e.code);
-          return false;
-        });
-      } catch (e) {
-        migrated = false;
-        data = Object.assign({}, BLANK, readLS()); normalize(); emit();
-        console.warn('Migratsiya xato:', e);
-        return Promise.resolve(false);
-      }
-    }
-    function forceUpload() { return uploadAll(readLS(), null); }
-
-    // RESTORE: bulutni localStorage nusxasiga TENGLASHTIRADI — backup'da yo'q hujjatlar O'CHIRILADI.
-    // (Oddiy uploadAll faqat qo'shadi; restore esa avtoritar — o'chirishlar ham ko'chsin.)
-    function restoreToCloud(ls) {
-      if (mode !== 'firebase' || !fbRef) return Promise.resolve(false);
-      ls = ls || readLS();
-      var memIds = {}, chatIds = {};
-      var mem = ls.memories || {};
-      Object.keys(mem).forEach(function (k) { (mem[k] || []).forEach(function (e) { if (e && e.id) memIds[String(e.id)] = true; }); });
-      (ls.chat || []).forEach(function (m) { if (m && m.id) chatIds[String(m.id)] = true; });
-      return Promise.all([memCol.get(), chatCol.get()]).then(function (snaps) {
-        var batch = firebase.firestore().batch();
-        batch.set(fbRef, {
-          lovePercent: ls.lovePercent != null ? ls.lovePercent : null,
-          madeUp: !!ls.madeUp, madeUpAt: ls.madeUpAt || null,
-          photo: ls.photo || null, shart: ls.shart || null, shartAt: ls.shartAt || null,
-          bucket: Array.isArray(ls.bucket) ? ls.bucket : [],
-          updatedAt: ls.updatedAt || Date.now(),
-        }, { merge: true });
-        snaps[0].forEach(function (doc) { if (!memIds[doc.id]) batch.delete(doc.ref); });
-        snaps[1].forEach(function (doc) { if (!chatIds[doc.id]) batch.delete(doc.ref); });
-        Object.keys(mem).forEach(function (k) {
-          (mem[k] || []).forEach(function (e) {
-            if (!e || !e.id) return;
-            batch.set(memCol.doc(String(e.id)), { dateKey: k, id: e.id, text: e.text || '', photo: e.photo || null, author: e.author || '', at: e.at || 0 });
-          });
-        });
-        (ls.chat || []).forEach(function (m) { if (m && m.id) batch.set(chatCol.doc(String(m.id)), m); });
-        return batch.commit();
-      }).then(function () {
-        try { localStorage.setItem(MIGR_FLAG, '1'); } catch (e) {}
-        lsMirrorReady = true;
-        return true;
-      }).catch(function (e) { console.warn('Restore (cloud) xato:', e && e.code); return false; });
+    // To'liq ma'lumotni serverga yozish (restore / seed) — avtoritar (o'chirishlar ham).
+    function pushAll(obj) {
+      var payload = obj || readLS();
+      return apiSend('POST', '/api/restore', payload).then(function () { return true; })
+        .catch(function (e) { console.warn('restore xato:', e && e.message); return false; });
     }
 
     function patch(p) {
-      const stamp = Date.now();
-      data = Object.assign({}, data, p, { updatedAt: stamp });
-      normalize();
-      if (mode === 'firebase' && fbRef) {
-        var out = {}; for (var k in p) if (p.hasOwnProperty(k)) out[k] = p[k];
-        out.updatedAt = stamp;
-        fbRef.set(out, { merge: true }).catch(function (e) { console.warn('Saqlashda xato:', e && e.code); });
-        writeLS(); // localStorage'ni ham yangilab boramiz (zaxira)
-        // onSnapshot keyin yangilangan data bilan emit qiladi
-      } else {
-        writeLS(); emit();
-      }
+      data = Object.assign({}, data, p, { updatedAt: Date.now() }); normalize(); writeLS(); emit(); // optimistik
+      apiSend('PATCH', '/api/main', p).catch(function (e) { console.warn('saqlashda xato:', e && e.message); toastSafe(); });
     }
 
-    // ---------- xotiralar (memories subkolleksiya — har biri alohida hujjat) ----------
+    // ---------- xotiralar ----------
     function addMemory(dateKey, entry) {
       normalize();
       if (!data.memories[dateKey]) data.memories[dateKey] = [];
-      data.memories[dateKey].push(entry);
-      data.updatedAt = Date.now(); writeLS();
-      if (mode === 'firebase' && memCol) {
-        memCol.doc(String(entry.id)).set({
-          dateKey: dateKey, id: entry.id, text: entry.text || '', photo: entry.photo || null,
-          author: entry.author || '', at: entry.at || 0,
-        }).catch(function (e) { console.warn('Xotira saqlashda xato:', e && e.code); });
-      }
-      emit();
+      data.memories[dateKey].push(entry); writeLS(); emit();
+      apiSend('POST', '/api/memory', Object.assign({ dateKey: dateKey }, entry))
+        .catch(function (e) { console.warn('xotira saqlash xato:', e && e.message); toastSafe(); });
     }
     function updateMemory(dateKey, id, fields) {
       normalize();
       var arr = data.memories[dateKey]; if (!arr) return;
-      for (var i = 0; i < arr.length; i++) if (arr[i].id === id) { arr[i] = Object.assign({}, arr[i], fields); break; }
-      data.updatedAt = Date.now(); writeLS();
-      if (mode === 'firebase' && memCol) {
-        memCol.doc(String(id)).set(Object.assign({ dateKey: dateKey, id: id }, fields), { merge: true }).catch(function (e) { console.warn('Xotira yangilashda xato:', e && e.code); });
-      }
-      emit();
+      var merged = null;
+      for (var i = 0; i < arr.length; i++) if (arr[i].id === id) { arr[i] = Object.assign({}, arr[i], fields); merged = arr[i]; break; }
+      writeLS(); emit();
+      if (merged) apiSend('POST', '/api/memory', Object.assign({ dateKey: dateKey }, merged))
+        .catch(function (e) { console.warn('xotira yangilash xato:', e && e.message); toastSafe(); });
     }
     function deleteMemory(dateKey, id) {
       normalize();
       var arr = data.memories[dateKey]; if (!arr) return;
       data.memories[dateKey] = arr.filter(function (e) { return e.id !== id; });
       if (data.memories[dateKey].length === 0) delete data.memories[dateKey];
-      data.updatedAt = Date.now(); writeLS();
-      if (mode === 'firebase' && memCol) {
-        memCol.doc(String(id)).delete().catch(function (e) { console.warn('Xotira ochirishda xato:', e && e.code); });
-      }
-      emit();
+      writeLS(); emit();
+      apiSend('DELETE', '/api/memory/' + encodeURIComponent(id))
+        .catch(function (e) { console.warn('xotira ochirish xato:', e && e.message); toastSafe(); });
     }
 
-    // ---------- orzular ro'yxati (bucket) ----------
+    // ---------- orzular (bucket) ----------
     function saveBucket() {
-      const stamp = Date.now();
-      data.updatedAt = stamp;
-      writeLS();
-      if (mode === 'firebase' && fbRef) {
-        fbRef.set({ bucket: data.bucket, updatedAt: stamp }, { merge: true })
-          .catch(function (e) { console.warn('Orzu saqlashda xato:', e && e.code); });
-        emit();
-      } else { emit(); }
+      writeLS(); emit();
+      apiSend('PUT', '/api/bucket', { bucket: data.bucket })
+        .catch(function (e) { console.warn('orzu saqlash xato:', e && e.message); toastSafe(); });
     }
     function addBucket(item) { normalize(); data.bucket.push(item); saveBucket(); }
     function updateBucket(id, fields) {
@@ -334,54 +131,30 @@
     }
     function deleteBucket(id) { normalize(); data.bucket = data.bucket.filter(function (b) { return b.id !== id; }); saveBucket(); }
 
-    // ---------- maxfiy chat (chat subkolleksiya — har xabar alohida hujjat) ----------
+    // ---------- maxfiy chat ----------
     function addChat(msg) {
-      normalize();
-      data.chat.push(msg);
-      data.updatedAt = Date.now(); writeLS();
-      if (mode === 'firebase' && chatCol) {
-        chatCol.doc(String(msg.id)).set(msg).catch(function (e) { console.warn('Chat saqlashda xato:', e && e.code); });
-      }
-      emit();
+      normalize(); data.chat.push(msg); writeLS(); emit();
+      apiSend('POST', '/api/chat', msg).catch(function (e) { console.warn('chat saqlash xato:', e && e.message); toastSafe(); });
     }
     function deleteChat(id) {
-      normalize();
-      data.chat = data.chat.filter(function (m) { return m.id !== id; });
-      data.updatedAt = Date.now(); writeLS();
-      if (mode === 'firebase' && chatCol) {
-        chatCol.doc(String(id)).delete().catch(function (e) { console.warn('Chat ochirishda xato:', e && e.code); });
-      }
-      emit();
+      normalize(); data.chat = data.chat.filter(function (m) { return m.id !== id; }); writeLS(); emit();
+      apiSend('DELETE', '/api/chat/' + encodeURIComponent(id)).catch(function (e) { console.warn('chat ochirish xato:', e && e.message); });
     }
     function clearChat() {
-      normalize();
-      var ids = data.chat.map(function (m) { return m.id; });
-      data.chat = [];
-      data.updatedAt = Date.now(); writeLS();
-      if (mode === 'firebase' && chatCol) {
-        var batch = firebase.firestore().batch();
-        ids.forEach(function (id) { if (id) batch.delete(chatCol.doc(String(id))); });
-        batch.commit().catch(function (e) { console.warn('Chat tozalashda xato:', e && e.code); });
-      }
-      emit();
+      normalize(); data.chat = []; writeLS(); emit();
+      apiSend('POST', '/api/chat/clear').catch(function (e) { console.warn('chat tozalash xato:', e && e.message); });
     }
 
-    function reloadLS() {
-      if (mode !== 'local') return false;
-      const fresh = readLS();
-      if (fresh && fresh.updatedAt && fresh.updatedAt !== data.updatedAt) {
-        data = Object.assign({}, BLANK, fresh);
-        emit();
-        return true;
-      }
-      return false;
-    }
+    // server rejimida "qayta yuklash" = serverdan yangilash
+    function reloadLS() { refresh(); return true; }
 
     return {
       init: init,
       reloadLS: reloadLS,
-      forceUpload: forceUpload,       // localStorage -> Firebase ADDITIV yuklash (promise)
-      restoreToCloud: restoreToCloud, // localStorage -> Firebase AVTORITAR (o'chirishlar bilan, promise)
+      forceUpload: function () { return pushAll(readLS()); },   // keshni serverga (avtoritar)
+      restoreToCloud: function () { return pushAll(readLS()); },
+      pushAll: pushAll,
+      refresh: refresh,
       get: function () { return data; },
       setAnswer: function (a) { patch(a); },
       setPhoto: function (url) { patch({ photo: url }); },
@@ -467,7 +240,7 @@
       range.addEventListener('input', function () { sliderTouched = true; });
       range.addEventListener('change', function () {
         Store.setAnswer({ lovePercent: +range.value });
-        toast('\ud83d\udc8c \u0416\u0430\u04b3\u043e\u043d\u0433\u0438\u0440\u0433\u0430 \u044e\u0431\u043e\u0440\u0438\u043b\u0434\u0438');
+        toast('💌 Жаҳонгирга юборилди');
       });
     }
     const yes = document.getElementById('btnYes');
@@ -476,12 +249,12 @@
         const r = document.getElementById('loveRange');
         const cur = Store.get().lovePercent;
         Store.setAnswer({ madeUp: true, madeUpAt: Date.now(), lovePercent: (cur == null && r) ? +r.value : cur });
-        toast('\ud83e\udd0d \u0416\u0430\u04b3\u043e\u043d\u0433\u0438\u0440\u0433\u0430 \u0435\u0442\u043a\u0430\u0437\u0438\u043b\u0434\u0438');
+        toast('🤍 Жаҳонгирга етказилди');
       });
     }
   }
 
-  /* ---------- shared rasm (Firebase-sinxron) ---------- */
+  /* ---------- shared rasm (server-sinxron) ---------- */
   function encodeBitmap(bmp, max, q) {
     const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * scale));
@@ -490,9 +263,9 @@
     c.getContext('2d').drawImage(bmp, 0, 0, w, h);
     return c.toDataURL('image/jpeg', q);
   }
-  // Firestore hujjati 1 MiB bilan cheklangan -> rasmni budjetga sig'guncha kichraytiramiz.
+  // Tarmoq/saqlash uchun rasmni oqilona o'lchamga (~700KB) keltiramiz.
   async function compressImage(file, budget) {
-    budget = budget || 700 * 1024; // asosiy rasm uchun ~700KB (skalyar/bucket'ga joy qoldiramiz)
+    budget = budget || 700 * 1024;
     const bmp = await createImageBitmap(file);
     let max = 1100, q = 0.82;
     let url = encodeBitmap(bmp, max, q);
@@ -529,11 +302,11 @@
     input.addEventListener('change', async function () {
       const f = input.files && input.files[0]; if (!f) return;
       try {
-        toast('\u23f3 \u0420\u0430\u0441\u043c \u044e\u043a\u043b\u0430\u043d\u043c\u043e\u049b\u0434\u0430...');
+        toast('⏳ Расм юкланмоқда...');
         const url = await compressImage(f);
         Store.setPhoto(url);
-        toast('\ud83d\udc97 \u0420\u0430\u0441\u043c \u0441\u0430\u049b\u043b\u0430\u043d\u0434\u0438');
-      } catch (e) { toast('\u0420\u0430\u0441\u043c\u043d\u0438 \u045e\u049b\u0438\u0431 \u0431\u045e\u043b\u043c\u0430\u0434\u0438 \ud83e\udd7a'); }
+        toast('💗 Расм сақланди');
+      } catch (e) { toast('Расмни ўқиб бўлмади 🥺'); }
       input.value = '';
     });
   }
@@ -560,14 +333,14 @@
     const isInf = pct >= 100;
 
     if (!has) {
-      big.textContent = '\u2014';
+      big.textContent = '—';
       fill.style.width = '0%';
-      sub.textContent = '\u041f\u0430\u0440\u0438\u0437\u043e\u0434\u0430 \u04b3\u0430\u043b\u0438 \u0436\u0430\u0432\u043e\u0431 \u0431\u0435\u0440\u043c\u0430\u0433\u0430\u043d. \u0423 \u045e\u0437 \u0441\u0430\u04b3\u0438\u0444\u0430\u0441\u0438\u0434\u0430 \u0441\u0435\u0432\u0433\u0438 \u045e\u043b\u0447\u0430\u0433\u0438\u0447\u043d\u0438 \u0441\u0443\u0440\u0433\u0430\u043d\u0434\u0430, \u0436\u0430\u0432\u043e\u0431\u0438 \u0448\u0443 \u0435\u0440\u0434\u0430 \u043f\u0430\u0439\u0434\u043e \u0431\u045e\u043b\u0430\u0434\u0438.';
+      sub.textContent = 'Паризода ҳали жавоб бермаган. У ўз саҳифасида севги ўлчагични сурганда, жавоби шу ерда пайдо бўлади.';
     } else {
-      big.textContent = isInf ? '\u221e' : pct + '%';
+      big.textContent = isInf ? '∞' : pct + '%';
       fill.style.width = (isInf ? 100 : pct) + '%';
       let line;
-      if (isInf) line = '\u0427\u0435\u043a\u0441\u0438\u0437. \u0421\u0435\u0432\u0433\u0438\u0441\u0438\u043d\u0438\u043d\u0433 \u0447\u0435\u0433\u0430\u0440\u0430\u0441\u0438 \u0439\u045e\u049b.';
+      if (isInf) line = 'Чексиз. Севгисининг чегараси йўқ.';
       else if (pct >= 85) line = 'Сизни чиндан қаттиқ севади.';
       else if (pct >= 55) line = 'Юраги сизники — бу аниқ.';
       else if (pct >= 25) line = 'Севади — бугун бир оз эътибор кутаётгандек.';
@@ -577,10 +350,10 @@
     if (made) {
       if (d.madeUp) {
         made.className = 'dash-status ok';
-        made.innerHTML = '<span class="ds-ico">\ud83e\udd0d</span> \u041f\u0430\u0440\u0438\u0437\u043e\u0434\u0430 \u044f\u0440\u0430\u0448\u0434\u0438!' + (d.madeUpAt ? ' <span class="ds-time">' + fmtTime(d.madeUpAt) + '</span>' : '');
+        made.innerHTML = '<span class="ds-ico">🤍</span> Паризода ярашди!' + (d.madeUpAt ? ' <span class="ds-time">' + fmtTime(d.madeUpAt) + '</span>' : '');
       } else {
         made.className = 'dash-status wait';
-        made.innerHTML = '<span class="ds-ico">\u231b</span> \u04b3\u0430\u043b\u0438 \u0436\u0430\u0432\u043e\u0431 \u043a\u0443\u0442\u0438\u043b\u043c\u043e\u049b\u0434\u0430';
+        made.innerHTML = '<span class="ds-ico">⌛</span> ҳали жавоб кутилмоқда';
       }
     }
     if (shartEl) {
@@ -600,13 +373,12 @@
       if (d.photo) { dPhotoImg.src = d.photo; dPhotoWrap.hidden = false; }
       else { dPhotoImg.removeAttribute('src'); dPhotoWrap.hidden = true; }
     }
-    upd.textContent = d.updatedAt ? ('\u043e\u0445\u0438\u0440\u0433\u0438 \u044f\u043d\u0433\u0438\u043b\u0430\u043d\u0438\u0448: ' + fmtTime(d.updatedAt)) : '';
+    upd.textContent = d.updatedAt ? ('охирги янгиланиш: ' + fmtTime(d.updatedAt)) : '';
   }
   function startDashPoll() {
-    // Firebase rejimida onSnapshot real-vaqtda yangilaydi; localStorage
-    // rejimida boshqa qurilmadan o'qish uchun davriy yangilab turamiz.
+    // Server rejimida SSE real-vaqtda yangilaydi — davriy poll shart emas.
     clearTimeout(dashTimer);
-    if (Store.mode === 'firebase') return;
+    if (Store.mode !== 'local') return;
     const poll = function () {
       if (!document.body.classList.contains('as-jaxongir')) return;
       try { Store.reloadLS(); } catch (e) {}
@@ -629,7 +401,7 @@
     setupPhoto();
     const refresh = document.getElementById('dashRefresh');
     if (refresh) refresh.addEventListener('click', function () {
-      try { Store.reloadLS(); } catch (e) {}
+      try { Store.refresh(); } catch (e) {}
       renderDashboard();
       if (window.BucketList && window.BucketList.render) window.BucketList.render();
       if (window.MemoryCalendar && window.MemoryCalendar.render) window.MemoryCalendar.render();
@@ -651,8 +423,8 @@
       deleteChat: function (id) { Store.deleteChat(id); },
       clearChat: function () { Store.clearChat(); },
       onUpdate: function (fn) { Store.onUpdate(fn); },
-      uploadLocalToCloud: function () { return Store.forceUpload(); },   // additiv (promise)
-      restoreToCloud: function () { return Store.restoreToCloud(); },    // avtoritar restore (promise)
+      uploadLocalToCloud: function () { return Store.forceUpload(); },
+      restoreToCloud: function () { return Store.restoreToCloud(); },
       mode: function () { return Store.mode; },
       currentUser: function () {
         if (document.body.classList.contains('as-jaxongir')) return 'Жаҳонгир';
