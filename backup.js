@@ -259,10 +259,41 @@
     document.body.appendChild(b);
   }
 
-  function boot() { injectStyle(); addFab(); }
+  // ---------- MAXFIY ochish (Parizoda ko'rmaydi) ----------
+  // Tugma standart holatda YO'Q. Faqat quyidagilarda paydo bo'ladi:
+  //   1) havola oxirida #zaxira / #backup (yoki ?zaxira=1)
+  //   2) yuqori-chap burchakka 6 marta tez bosish (telefon uchun qulay)
+  //   3) konsolda PJBackup.open()
+  function unlockedByUrl() {
+    var s = ((location.hash || '') + ' ' + (location.search || '')).toLowerCase();
+    return s.indexOf('zaxira') !== -1 || s.indexOf('backup') !== -1;
+  }
+
+  function reveal(autoOpen) {
+    injectStyle();
+    addFab();
+    if (autoOpen) open();
+  }
+
+  function armSecretGesture() {
+    var taps = [], CORNER = 60, NEED = 6, WIN = 3000;
+    document.addEventListener('pointerdown', function (e) {
+      if (e.clientX > CORNER || e.clientY > CORNER) return; // faqat yuqori-chap burchak
+      var now = (new Date()).getTime();
+      taps.push(now);
+      taps = taps.filter(function (t) { return now - t < WIN; });
+      if (taps.length >= NEED) { taps.length = 0; reveal(true); }
+    }, true);
+  }
+
+  function boot() {
+    armSecretGesture();
+    if (unlockedByUrl()) reveal(true);
+    // aks holda hech narsa ko'rinmaydi — Parizoda oddiy holatda tugmani ko'rmaydi
+  }
   if (document.readyState !== 'loading') boot();
   else document.addEventListener('DOMContentLoaded', boot);
 
-  // tashqaridan ochish uchun (ixtiyoriy)
-  window.PJBackup = { open: open, json: toJSON };
+  // tashqaridan ochish uchun (ixtiyoriy) — konsol yoki maxfiy ishlatish
+  window.PJBackup = { open: function () { injectStyle(); open(); }, reveal: reveal, json: toJSON };
 })();
