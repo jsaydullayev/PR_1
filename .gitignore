@@ -1,5 +1,7 @@
-# Backup arxivlar
+# Backup arxivlar (shaxsiy ma'lumot — repo'da turmasin)
 *.zip
+JSON.md
+backup-*.json
 
 # OS / muhit
 .DS_Store

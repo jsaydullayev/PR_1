@@ -197,7 +197,16 @@
         } else {
           for (var k in obj.keys) { if (obj.keys.hasOwnProperty(k)) localStorage.setItem(k, obj.keys[k]); }
         }
-        alert('Done.'); location.reload();
+        // Firebase rejimida: localStorage'ga yozish yetarli emas — bulutga ham yuklaymiz,
+        // aks holda qayta yuklanganda remote ma'lumot localStorage'ni qayta yozadi.
+        var fbMode = false;
+        try { fbMode = window.PJ && PJ.mode && PJ.mode() === 'firebase'; } catch (e) {}
+        if (fbMode && PJ.uploadLocalToCloud) {
+          try { PJ.uploadLocalToCloud(); } catch (e) {}
+          alert('Done (cloud). Yuklanmoqda...'); setTimeout(function () { location.reload(); }, 1500);
+        } else {
+          alert('Done.'); location.reload();
+        }
       } catch (e) { alert('Error: ' + e.message); }
     };
     rd.readAsText(f);

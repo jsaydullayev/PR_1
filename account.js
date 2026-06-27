@@ -19,13 +19,31 @@
     let cb = null;
     let mode = 'local';
     let fbRef = null;
+    let memCol = null, chatCol = null;   // Firestore subkolleksiyalar (1 MiB limitni chetlab o'tish uchun)
+    let mainSeen = false, migrated = false;
+    // XAVFSIZLIK: remote -> localStorage ko'zgu faqat migratsiya hal bo'lgach yoqiladi,
+    // aks holda bo'sh remote birinchi snapshotda localStorage tarixini o'chirib yuboradi.
+    let lsMirrorReady = false;
     const LS = 'pj_answers';
+    const MIGR_FLAG = 'pj_fb_migrated';
     const listeners = [];
 
     function readLS() { try { return JSON.parse(localStorage.getItem(LS) || 'null') || {}; } catch (e) { return {}; } }
     function writeLS() { try { localStorage.setItem(LS, JSON.stringify(data)); } catch (e) {} }
     function normalize() { if (!data.memories || typeof data.memories !== 'object') data.memories = {}; if (!Array.isArray(data.bucket)) data.bucket = []; if (!Array.isArray(data.chat)) data.chat = []; }
     function emit() { normalize(); if (cb) cb(data); for (var i = 0; i < listeners.length; i++) { try { listeners[i](data); } catch (e) {} } }
+
+    // Firebase main hujjatdan FAQAT skalyar maydonlar; memories/chat subkolleksiyalardan keladi (1 MiB limit uchun).
+    function applyMain(v) {
+      data.lovePercent = (v.lovePercent != null) ? v.lovePercent : null;
+      data.madeUp = !!v.madeUp;
+      data.madeUpAt = (v.madeUpAt != null) ? v.madeUpAt : null;
+      data.photo = (v.photo != null) ? v.photo : null;
+      data.shart = (v.shart != null) ? v.shart : null;
+      data.shartAt = (v.shartAt != null) ? v.shartAt : null;
+      data.bucket = Array.isArray(v.bucket) ? v.bucket : [];
+      if (v.updatedAt != null) data.updatedAt = v.updatedAt;
+    }
 
     function init(onChange) {
       cb = onChange;
@@ -36,15 +54,41 @@
           if (!firebase.apps.length) firebase.initializeApp(cfg);
           const d = window.COUPLE_DOC || { collection: 'couple', id: 'us' };
           fbRef = firebase.firestore().collection(d.collection).doc(d.id);
+          memCol = fbRef.collection('memories');
+          chatCol = fbRef.collection('chat');
           mode = 'firebase';
-          fbRef.onSnapshot(
-            function (snap) {
-              const v = snap.exists ? snap.data() : {};
-              data = Object.assign({}, BLANK, v);
-              emit();
-            },
-            function (err) { console.warn('Firestore o\u02bbqishda xato:', err && err.code); }
-          );
+          // Darhol mavjud (localStorage) ma'lumotni ko'rsatamiz; snapshot keyin aniqlashtiradi.
+          data = Object.assign({}, BLANK, readLS()); normalize();
+          // 1) asosiy hujjat \u2014 skalyar maydonlar + asosiy rasm + bucket
+          fbRef.onSnapshot(function (snap) {
+            if (!mainSeen) { mainSeen = true; maybeMigrate(!!snap.exists); }
+            // Bo'sh remote'ni (migratsiyadan oldin) seed ma'lumot ustiga yozmaymiz.
+            if (snap.exists || lsMirrorReady) applyMain(snap.exists ? snap.data() : {});
+            if (lsMirrorReady) writeLS();
+            emit();
+          }, function (err) { console.warn('Firestore main xato:', err && err.code); });
+
+          // 2) memories subkolleksiya \u2014 har xotira alohida hujjat
+          memCol.onSnapshot(function (qs) {
+            const map = {};
+            qs.forEach(function (doc) {
+              const e = doc.data() || {};
+              const k = e.dateKey || '0000-00-00';
+              (map[k] = map[k] || []).push({
+                id: e.id || doc.id, text: e.text || '', photo: e.photo || null,
+                author: e.author || '', at: e.at || 0,
+              });
+            });
+            data.memories = map; if (lsMirrorReady) writeLS(); emit();
+          }, function (err) { console.warn('Firestore memories xato:', err && err.code); });
+
+          // 3) chat subkolleksiya \u2014 har xabar alohida hujjat
+          chatCol.onSnapshot(function (qs) {
+            const arr = [];
+            qs.forEach(function (doc) { var m = doc.data() || {}; m.id = m.id || doc.id; arr.push(m); });
+            arr.sort(function (a, b) { return (a.at || 0) - (b.at || 0); });
+            data.chat = arr; if (lsMirrorReady) writeLS(); emit();
+          }, function (err) { console.warn('Firestore chat xato:', err && err.code); });
           console.log('%cParizoda: Firebase rejimi yoqildi 💗', 'color:#D6537E');
         } catch (e) { console.warn('Firebase init xato, localStorage rejimi:', e); mode = 'local'; }
       }
@@ -55,51 +99,108 @@
       }
     }
 
+    // ---------- migratsiya: localStorage -> Firebase (union-merge, qurilmaga bir marta) ----------
+    // Local ma'lumot Firebase'ga qo'shiladi (id bo'yicha union — hech narsa o'chmaydi).
+    // localStorage faqat remote to'la bo'lgach ko'zgu qilinadi; HECH QACHON bo'sh remote bilan o'chmaydi.
+    function maybeMigrate(remoteExists) {
+      if (migrated) return;
+      migrated = true;
+      var already = false; try { already = !!localStorage.getItem(MIGR_FLAG); } catch (e) {}
+      const ls = readLS(); // localStorage hali butun (writeLS gate bilan to'xtatilgan)
+      const hasLocal = ls && (ls.updatedAt || ls.photo || ls.shart || ls.lovePercent != null ||
+        (ls.memories && Object.keys(ls.memories).length) || (ls.chat && ls.chat.length) || (ls.bucket && ls.bucket.length));
+      // Bu qurilmada allaqachon yuklangan, YOKI yuklaydigan local ma'lumot yo'q -> remote'ni qabul qilamiz.
+      if (already || !hasLocal) {
+        lsMirrorReady = true;
+        if (remoteExists) { try { localStorage.setItem(MIGR_FLAG, '1'); } catch (e) {} }
+        return;
+      }
+      // Local ma'lumot bor va bu qurilmada hali yuklanmagan -> union-merge (remote bo'sh ham, to'la ham).
+      // Tartibdan qat'i nazar (Parizoda yoki Jahongir avval) hech qaysi tomon ma'lumoti yo'qolmaydi.
+      uploadAll(ls); // muvaffaqiyatdan keyin lsMirrorReady = true va MIGR_FLAG = 1 (uploadAll ichida)
+    }
+
+    // localStorage'dagi to'liq ma'lumotni Firebase'ga yuklash (qo'lda ham chaqirsa bo'ladi)
+    function uploadAll(ls) {
+      if (mode !== 'firebase' || !fbRef) return;
+      try {
+        const batch = firebase.firestore().batch();
+        batch.set(fbRef, {
+          lovePercent: ls.lovePercent != null ? ls.lovePercent : null,
+          madeUp: !!ls.madeUp, madeUpAt: ls.madeUpAt || null,
+          photo: ls.photo || null, shart: ls.shart || null, shartAt: ls.shartAt || null,
+          bucket: Array.isArray(ls.bucket) ? ls.bucket : [],
+          updatedAt: ls.updatedAt || Date.now(),
+        }, { merge: true });
+        const mem = ls.memories || {};
+        Object.keys(mem).forEach(function (k) {
+          (mem[k] || []).forEach(function (e) {
+            if (!e || !e.id) return;
+            batch.set(memCol.doc(String(e.id)), {
+              dateKey: k, id: e.id, text: e.text || '', photo: e.photo || null,
+              author: e.author || '', at: e.at || 0,
+            });
+          });
+        });
+        (ls.chat || []).forEach(function (m) { if (m && m.id) batch.set(chatCol.doc(String(m.id)), m); });
+        batch.commit().then(function () {
+          try { localStorage.setItem(MIGR_FLAG, '1'); } catch (e) {}
+          lsMirrorReady = true; // endi remote to'la — localStorage'ni ko'zgu qilsa xavfsiz
+          console.log('%cParizoda: localStorage -> Firebase migratsiya bajarildi', 'color:#1a9');
+        }).catch(function (e) { migrated = false; console.warn('Migratsiya xato (localStorage saqlanib qoldi):', e && e.code); });
+      } catch (e) { migrated = false; console.warn('Migratsiya xato:', e); }
+    }
+    function forceUpload() { uploadAll(readLS()); }
+
     function patch(p) {
       const stamp = Date.now();
       data = Object.assign({}, data, p, { updatedAt: stamp });
       normalize();
       if (mode === 'firebase' && fbRef) {
-        fbRef.set(Object.assign({}, p, { updatedAt: stamp }), { merge: true })
-          .catch(function (e) { console.warn('Saqlashda xato:', e && e.code); });
+        var out = {}; for (var k in p) if (p.hasOwnProperty(k)) out[k] = p[k];
+        out.updatedAt = stamp;
+        fbRef.set(out, { merge: true }).catch(function (e) { console.warn('Saqlashda xato:', e && e.code); });
+        writeLS(); // localStorage'ni ham yangilab boramiz (zaxira)
         // onSnapshot keyin yangilangan data bilan emit qiladi
       } else {
         writeLS(); emit();
       }
     }
 
-    // memories uchun: butun 'memories' maydonini qayta yozamiz (o'chirish ham ishlashi uchun)
-    function saveMemories() {
-      const stamp = Date.now();
-      data.updatedAt = stamp;
-      writeLS();
-      if (mode === 'firebase' && fbRef) {
-        fbRef.update({ memories: data.memories, updatedAt: stamp })
-          .catch(function () { return fbRef.set({ memories: data.memories, updatedAt: stamp }, { merge: true }); })
-          .catch(function (e) { console.warn('Xotira saqlashda xato:', e && e.code); });
-        emit();
-      } else {
-        emit();
-      }
-    }
+    // ---------- xotiralar (memories subkolleksiya — har biri alohida hujjat) ----------
     function addMemory(dateKey, entry) {
       normalize();
       if (!data.memories[dateKey]) data.memories[dateKey] = [];
       data.memories[dateKey].push(entry);
-      saveMemories();
+      data.updatedAt = Date.now(); writeLS();
+      if (mode === 'firebase' && memCol) {
+        memCol.doc(String(entry.id)).set({
+          dateKey: dateKey, id: entry.id, text: entry.text || '', photo: entry.photo || null,
+          author: entry.author || '', at: entry.at || 0,
+        }).catch(function (e) { console.warn('Xotira saqlashda xato:', e && e.code); });
+      }
+      emit();
     }
     function updateMemory(dateKey, id, fields) {
       normalize();
       var arr = data.memories[dateKey]; if (!arr) return;
       for (var i = 0; i < arr.length; i++) if (arr[i].id === id) { arr[i] = Object.assign({}, arr[i], fields); break; }
-      saveMemories();
+      data.updatedAt = Date.now(); writeLS();
+      if (mode === 'firebase' && memCol) {
+        memCol.doc(String(id)).set(fields, { merge: true }).catch(function (e) { console.warn('Xotira yangilashda xato:', e && e.code); });
+      }
+      emit();
     }
     function deleteMemory(dateKey, id) {
       normalize();
       var arr = data.memories[dateKey]; if (!arr) return;
       data.memories[dateKey] = arr.filter(function (e) { return e.id !== id; });
       if (data.memories[dateKey].length === 0) delete data.memories[dateKey];
-      saveMemories();
+      data.updatedAt = Date.now(); writeLS();
+      if (mode === 'firebase' && memCol) {
+        memCol.doc(String(id)).delete().catch(function (e) { console.warn('Xotira ochirishda xato:', e && e.code); });
+      }
+      emit();
     }
 
     // ---------- orzular ro'yxati (bucket) ----------
@@ -108,8 +209,7 @@
       data.updatedAt = stamp;
       writeLS();
       if (mode === 'firebase' && fbRef) {
-        fbRef.update({ bucket: data.bucket, updatedAt: stamp })
-          .catch(function () { return fbRef.set({ bucket: data.bucket, updatedAt: stamp }, { merge: true }); })
+        fbRef.set({ bucket: data.bucket, updatedAt: stamp }, { merge: true })
           .catch(function (e) { console.warn('Orzu saqlashda xato:', e && e.code); });
         emit();
       } else { emit(); }
@@ -122,27 +222,37 @@
     }
     function deleteBucket(id) { normalize(); data.bucket = data.bucket.filter(function (b) { return b.id !== id; }); saveBucket(); }
 
-    // ---------- maxfiy chat ----------
-    function saveChat() {
-      const stamp = Date.now();
-      data.updatedAt = stamp;
-      writeLS();
-      if (mode === 'firebase' && fbRef) {
-        fbRef.update({ chat: data.chat, updatedAt: stamp })
-          .catch(function () { return fbRef.set({ chat: data.chat, updatedAt: stamp }, { merge: true }); })
-          .catch(function (e) { console.warn('Chat saqlashda xato:', e && e.code); });
-        emit();
-      } else { emit(); }
-    }
+    // ---------- maxfiy chat (chat subkolleksiya — har xabar alohida hujjat) ----------
     function addChat(msg) {
       normalize();
       data.chat.push(msg);
-      // juda uzun bo'lib ketmasin: oxirgi 500 ta xabar
-      if (data.chat.length > 500) data.chat = data.chat.slice(-500);
-      saveChat();
+      data.updatedAt = Date.now(); writeLS();
+      if (mode === 'firebase' && chatCol) {
+        chatCol.doc(String(msg.id)).set(msg).catch(function (e) { console.warn('Chat saqlashda xato:', e && e.code); });
+      }
+      emit();
     }
-    function deleteChat(id) { normalize(); data.chat = data.chat.filter(function (m) { return m.id !== id; }); saveChat(); }
-    function clearChat() { normalize(); data.chat = []; saveChat(); }
+    function deleteChat(id) {
+      normalize();
+      data.chat = data.chat.filter(function (m) { return m.id !== id; });
+      data.updatedAt = Date.now(); writeLS();
+      if (mode === 'firebase' && chatCol) {
+        chatCol.doc(String(id)).delete().catch(function (e) { console.warn('Chat ochirishda xato:', e && e.code); });
+      }
+      emit();
+    }
+    function clearChat() {
+      normalize();
+      var ids = data.chat.map(function (m) { return m.id; });
+      data.chat = [];
+      data.updatedAt = Date.now(); writeLS();
+      if (mode === 'firebase' && chatCol) {
+        var batch = firebase.firestore().batch();
+        ids.forEach(function (id) { if (id) batch.delete(chatCol.doc(String(id))); });
+        batch.commit().catch(function (e) { console.warn('Chat tozalashda xato:', e && e.code); });
+      }
+      emit();
+    }
 
     function reloadLS() {
       if (mode !== 'local') return false;
@@ -158,6 +268,7 @@
     return {
       init: init,
       reloadLS: reloadLS,
+      forceUpload: forceUpload,   // localStorage'dagi to'liq ma'lumotni qo'lda Firebase'ga yuklash
       get: function () { return data; },
       setAnswer: function (a) { patch(a); },
       setPhoto: function (url) { patch({ photo: url }); },
@@ -417,6 +528,8 @@
       deleteChat: function (id) { Store.deleteChat(id); },
       clearChat: function () { Store.clearChat(); },
       onUpdate: function (fn) { Store.onUpdate(fn); },
+      uploadLocalToCloud: function () { Store.forceUpload(); },  // localStorage -> Firebase (qo'lda)
+      mode: function () { return Store.mode; },
       currentUser: function () {
         if (document.body.classList.contains('as-jaxongir')) return 'Жаҳонгир';
         if (document.body.classList.contains('as-parizoda')) return 'Паризода';

@@ -12,12 +12,13 @@
    ikkala telefonda ko'rinishi uchun pastni TO'LDIRING.
    ============================================================ */
 window.FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyBSJA_mVOyPzjjZLaE7wJ_RQtUt7Rg22FM",
+  authDomain: "parizoda-e7d5f.firebaseapp.com",
+  projectId: "parizoda-e7d5f",
+  storageBucket: "parizoda-e7d5f.firebasestorage.app",
+  messagingSenderId: "13337907654",
+  appId: "1:13337907654:web:01323f457719f39a2c22c7",
+  measurementId: "G-Z5NBSC3B6D"
 };
 
 /* Juftlik uchun bitta hujjat manzili — o'zgartirish shart emas */

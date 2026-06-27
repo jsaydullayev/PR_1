@@ -43,9 +43,13 @@ Firebase konsol → **Firestore Database → Rules** → quyidagini qo'ying va *
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Faqat sizning bitta hujjatingiz o'qiladi/yoziladi
+    // Sizning juftlik hujjatingiz VA uning subkolleksiyalari
+    // (memories, chat) o'qiladi/yoziladi.
     match /couple/jaxongir-parizoda {
       allow read, write: if true;
+      match /{sub}/{docId} {
+        allow read, write: if true;
+      }
     }
     // Boshqa hamma narsa yopiq
     match /{document=**} {
@@ -55,7 +59,13 @@ service cloud.firestore {
 }
 ```
 
-> ⚠️ Bu qoida o'sha bitta hujjatni hammaga ochiq qiladi (login paroli
+> ⚠️ **Muhim:** rasmlar (asosiy + xotiralar) 1.3 MB dan oshgani uchun ma'lumot
+> bitta Firestore hujjatiga (1 MiB limit) sig'maydi. Shuning uchun **xotiralar**
+> va **chat** alohida subkolleksiyalarga yoziladi — yuqoridagi qoida shuni ham
+> qamrab oladi. Faqat asosiy hujjatga ruxsat beruvchi eski qoidani ishlatsangiz,
+> xotira/chat **saqlanmaydi**.
+
+> ⚠️ Bu qoida o'sha hujjatni hammaga ochiq qiladi (login paroli
 > kodda turgani uchun chin himoya emas). Shaxsiy sovg'a uchun yetarli —
 > **havolani maxfiy tuting**. Kuchliroq himoya kerak bo'lsa, menga ayting,
 > Firebase Authentication qo'shamiz.
