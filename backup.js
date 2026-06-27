@@ -287,9 +287,10 @@
   }
 
   function boot() {
-    armSecretGesture();
-    if (unlockedByUrl()) reveal(true);
-    // aks holda hech narsa ko'rinmaydi — Parizoda oddiy holatda tugmani ko'rmaydi
+    injectStyle();
+    addFab();              // tugma doim ko'rinadi
+    armSecretGesture();    // qo'shimcha: yuqori-chap burchakka 6 marta bosish ham ishlaydi
+    if (unlockedByUrl()) open(); // #zaxira havola bilan darrov ochiladi
   }
   if (document.readyState !== 'loading') boot();
   else document.addEventListener('DOMContentLoaded', boot);
