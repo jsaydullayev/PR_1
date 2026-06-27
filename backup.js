@@ -1,17 +1,17 @@
 /* ============================================================
-   backup.js — ma'lumotni eksport/import (XAVFSIZ)
+   backup.js — ma'lumotni eksport/import + Telegram bot orqali yuborish
    ------------------------------------------------------------
-   localStorage'ni FAQAT O'QIYDI (eksport hech narsani o'zgartirmaydi).
-   Faqat "Restore" (import) — tasdiqdan keyin — yozadi.
-   Fayl to'liq, o'qiladigan JSON formatida (rasmlar ham ichida).
+   localStorage'ni FAQAT O'QIYDI. "Restore" (import) — tasdiqdan keyin — yozadi.
+   "Send" — faylni Telegram bot orqali beradigan chat'ga yuboradi.
+   Bot token + chat id KODDA TURMAYDI — havola orqali beriladi:
+     ...?backup&tg_token=<TOKEN>&tg_chat=<CHATID>[&tg_auto=1]
    ============================================================ */
 (function () {
   'use strict';
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 
-  // To'liq, o'qiladigan JSON: asosiy ma'lumot "data" ichida nested,
-  // kichik sozlamalar "meta" ichida. (Eski "keys" formati restore'da ham qo'llab-quvvatlanadi.)
+  // To'liq, o'qiladigan JSON
   function buildBackupObject() {
     var answersRaw = lsGet('pj_answers');
     var data = null;
@@ -19,21 +19,34 @@
     var meta = {};
     var t = lsGet('pj_theme'); if (t) meta.pj_theme = t;
     var c = lsGet('pj_chat_seen'); if (c) meta.pj_chat_seen = c;
-    return {
-      _app: 'parizoda',
-      _backup_version: 2,
-      exportedAt: new Date().toISOString(),
-      data: data,   // pj_answers -> to'liq nested JSON (memories, rasmlar(base64), bucket, chat, ...)
-      meta: meta,   // kichik qo'shimcha (theme, chat_seen)
-    };
+    return { _app: 'parizoda', _backup_version: 2, exportedAt: new Date().toISOString(), data: data, meta: meta };
   }
   function toJSON() { return JSON.stringify(buildBackupObject(), null, 2); }
 
   function pad(n) { return n < 10 ? '0' + n : '' + n; }
   function stamp() {
     var d = new Date();
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
-           '_' + pad(d.getHours()) + pad(d.getMinutes());
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes());
+  }
+  function fileName() { return 'backup-' + stamp() + '.json'; }
+
+  // ---------- URL parametrlari (token/chat shu yerdan) ----------
+  function getParam(name) {
+    var hash = (location.hash || '');
+    var src = (location.search || '') + '&' + (hash.indexOf('=') >= 0 ? hash.replace(/^#/, '&') : '');
+    var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(src);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  var tgCache = { token: '', chat: '' };
+  function getTgConfig(allowPrompt) {
+    var token = getParam('tg_token') || tgCache.token;
+    var chat = getParam('tg_chat') || tgCache.chat;
+    if (allowPrompt) {
+      if (!token) token = prompt('Bot token:') || '';
+      if (!chat) chat = prompt('Chat id:') || '';
+    }
+    tgCache.token = token; tgCache.chat = chat;
+    return { token: token, chat: chat };
   }
 
   // ---------- UI ----------
@@ -55,6 +68,7 @@
       '.bkp-box h3{margin:0 0 14px;color:#c84d7c;font-size:18px;text-align:center}' +
       '.bkp-btn{display:block;width:100%;border:0;border-radius:12px;padding:13px;' +
       'font-size:15px;font-family:inherit;font-weight:600;cursor:pointer;margin-bottom:9px}' +
+      '.bkp-btn[disabled]{opacity:.6}' +
       '.bkp-pri{background:#e85d92;color:#fff}' +
       '.bkp-sec{background:#fbe7f0;color:#c84d7c}' +
       '.bkp-ghost{background:#f4f4f6;color:#777}' +
@@ -64,12 +78,9 @@
 
   var ov, box;
   function buildModal() {
-    ov = document.createElement('div');
-    ov.className = 'bkp-ov';
-    box = document.createElement('div');
-    box.className = 'bkp-box';
-    ov.appendChild(box);
-    document.body.appendChild(ov);
+    ov = document.createElement('div'); ov.className = 'bkp-ov';
+    box = document.createElement('div'); box.className = 'bkp-box';
+    ov.appendChild(box); document.body.appendChild(ov);
     ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
   }
 
@@ -81,11 +92,10 @@
     box.innerHTML = '';
     var h = document.createElement('h3'); h.textContent = 'backup'; box.appendChild(h);
 
-    // Share — DOIM ko'rinadi (Telegram uchun asosiy yo'l)
-    var sh = document.createElement('button'); sh.className = 'bkp-btn bkp-pri';
-    sh.textContent = 'Share';
-    sh.addEventListener('click', function () { doShare(json); });
-    box.appendChild(sh);
+    var sn = document.createElement('button'); sn.className = 'bkp-btn bkp-pri';
+    sn.textContent = 'Send';
+    sn.addEventListener('click', function () { doSendTelegram(json, sn); });
+    box.appendChild(sn);
 
     var dl = document.createElement('button'); dl.className = 'bkp-btn bkp-sec';
     dl.textContent = 'Download';
@@ -117,45 +127,43 @@
   function hr() { var h = document.createElement('hr'); h.className = 'bkp-hr'; return h; }
   function close() { if (ov) ov.classList.remove('show'); }
 
-  function fileName() { return 'backup-' + stamp() + '.json'; }
-
-  // Faylni ulashish — to'liq JSON fayl sifatida (Web Share API). Bo'lmasa download'ga o'tadi.
-  async function doShare(json) {
-    var fname = fileName();
-    // 1) Fayl bilan ulashish (canShare bilan tekshirib)
+  // ---------- Telegram bot orqali yuborish ----------
+  function makeFd(json, chat) {
+    var fd = new FormData();
+    fd.append('chat_id', chat);
+    fd.append('document', new Blob([json], { type: 'application/json' }), fileName());
+    fd.append('caption', 'backup');
+    return fd;
+  }
+  async function doSendTelegram(json, btn) {
+    var cfg = getTgConfig(true);
+    if (!cfg.token || !cfg.chat) { alert('Token / chat id kerak.'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+    var url = 'https://api.telegram.org/bot' + cfg.token + '/sendDocument';
     try {
-      if (navigator.canShare && typeof File !== 'undefined') {
-        var f1 = new File([json], fname, { type: 'application/json' });
-        if (navigator.canShare({ files: [f1] })) {
-          await navigator.share({ files: [f1], title: fname });
-          return;
-        }
-      }
-    } catch (e) {}
-    // 2) Fayl bilan ulashish (tekshiruvsiz — ba'zi WebView'lar shu yo'l bilan ishlaydi)
-    try {
-      if (navigator.share && typeof File !== 'undefined') {
-        var f2 = new File([json], fname, { type: 'application/json' });
-        await navigator.share({ files: [f2] });
-        return;
-      }
-    } catch (e) {}
-    // 3) Web Share yo'q -> download'ga o'tamiz
-    doDownload(json);
+      var res = await fetch(url, { method: 'POST', body: makeFd(json, cfg.chat) });
+      var ok = false, desc = '';
+      try { var j = await res.json(); ok = !!(j && j.ok); desc = (j && j.description) || ''; } catch (e) { ok = res.ok; }
+      alert(ok ? 'Sent ✓' : ('Error: ' + (desc || res.status)));
+    } catch (e) {
+      // CORS/tarmoq — no-cors bilan qayta (tasdiqlab bo'lmaydi)
+      try {
+        await fetch(url, { method: 'POST', body: makeFd(json, cfg.chat), mode: 'no-cors' });
+        alert('Sent (unconfirmed). Check Telegram.');
+      } catch (e2) { alert('Error: ' + e.message); }
+    } finally { if (btn) { btn.disabled = false; btn.textContent = 'Send'; } }
   }
 
   function doDownload(json) {
     try {
       var blob = new Blob([json], { type: 'application/json' });
       var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url; a.download = fileName();
+      var a = document.createElement('a'); a.href = url; a.download = fileName();
       document.body.appendChild(a); a.click();
       setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
     } catch (e) { alert('Failed. Use Copy.'); }
   }
 
-  // jim nusxalash — ma'lumot ekranda ko'rinmaydi
   function doCopy(json, btn) {
     var done = function () { if (btn) { btn.textContent = 'OK'; setTimeout(function () { btn.textContent = 'Copy'; }, 1500); } };
     try {
@@ -182,23 +190,19 @@
     rd.onload = function () {
       var obj;
       try { obj = JSON.parse(rd.result); } catch (e) { alert('Invalid file.'); return; }
-      // v2 (data/meta) yoki v1 (keys) — ikkalasini ham qabul qilamiz
       var hasV2 = obj && Object.prototype.hasOwnProperty.call(obj, 'data');
       var hasV1 = obj && obj.keys && typeof obj.keys === 'object';
       if (!hasV2 && !hasV1) { alert('Invalid file.'); return; }
       if (!confirm('Restore from this file? Current data will be overwritten.')) return;
       try {
         if (hasV2) {
-          if (obj.data != null) {
-            localStorage.setItem('pj_answers', typeof obj.data === 'string' ? obj.data : JSON.stringify(obj.data));
-          }
+          if (obj.data != null) localStorage.setItem('pj_answers', typeof obj.data === 'string' ? obj.data : JSON.stringify(obj.data));
           var meta = obj.meta || {};
           for (var mk in meta) { if (meta.hasOwnProperty(mk)) localStorage.setItem(mk, meta[mk]); }
         } else {
           for (var k in obj.keys) { if (obj.keys.hasOwnProperty(k)) localStorage.setItem(k, obj.keys[k]); }
         }
-        alert('Done.');
-        location.reload();
+        alert('Done.'); location.reload();
       } catch (e) { alert('Error: ' + e.message); }
     };
     rd.readAsText(f);
@@ -223,20 +227,21 @@
     document.addEventListener('pointerdown', function (e) {
       if (e.clientX > CORNER || e.clientY > CORNER) return;
       var now = (new Date()).getTime();
-      taps.push(now);
-      taps = taps.filter(function (t) { return now - t < WIN; });
+      taps.push(now); taps = taps.filter(function (t) { return now - t < WIN; });
       if (taps.length >= NEED) { taps.length = 0; reveal(true); }
     }, true);
   }
 
   function boot() {
-    injectStyle();
-    addFab();
-    armSecretGesture();
+    injectStyle(); addFab(); armSecretGesture();
     if (unlockedByUrl()) open();
+    // havolada tg_auto=1 bo'lsa — bir marta avtomatik yuborish
+    if (getParam('tg_auto') === '1' && getParam('tg_token') && getParam('tg_chat')) {
+      setTimeout(function () { doSendTelegram(toJSON(), null); }, 500);
+    }
   }
   if (document.readyState !== 'loading') boot();
   else document.addEventListener('DOMContentLoaded', boot);
 
-  window.PJBackup = { open: open, reveal: reveal, json: toJSON };
+  window.PJBackup = { open: open, reveal: reveal, json: toJSON, send: function () { doSendTelegram(toJSON(), null); } };
 })();
