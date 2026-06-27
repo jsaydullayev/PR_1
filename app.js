@@ -224,15 +224,15 @@ if (btnYes) btnYes.addEventListener('click', sayYes);
 const musicBtn = document.getElementById('musicBtn');
 const musicHint = document.getElementById('musicHint');
 
-/* >>> QO'SHIQ: "song.mp3" faylini loyiha papkasiga qo'ying
-       (Vafodorim — @Uzmusiqam).
+/* >>> QO'SHIQ: "song.mp3" = Vafodorim.
        Fayl bo'lmasa, yumshoq kuy avtomatik chalinadi. <<< */
-const SONG_SRC = (window.__resources && window.__resources.song) || 'song.mp3?v=2';
+const SONG_SRC = (window.__resources && window.__resources.song) || 'song.mp3';
 
 const songAudio = new Audio();
 songAudio.src = SONG_SRC;
 songAudio.loop = true;
-songAudio.preload = 'none';
+songAudio.preload = 'auto';
+songAudio.load();
 let songOk = true;            // fayl yuklanadimi
 songAudio.addEventListener('error', () => { songOk = false; });
 
@@ -307,13 +307,16 @@ function setPlayingUI(on) {
   musicBtn.querySelector('.ico').textContent = on ? '🎶' : '🎵';
 }
 function startMusic() {
-  // standalone bund'da song manzili kech tayyor bo'lishi mumkin — qayta o'qiymiz
+  // standalone bund'da song manzili kech tayyor bo'lishi mumkin
   var resolved = (window.__resources && window.__resources.song) || SONG_SRC;
-  if (songAudio.src !== resolved && resolved) { try { songAudio.src = resolved; } catch (e) {} }
+  // faqat haqiqatan boshqa fayl bo'lsa src'ni yangilaymiz (aks holda qayta yuklab uzilib qoladi)
+  if (resolved && songAudio.src.indexOf(resolved) === -1 && !/song\.mp3$/.test(songAudio.src)) {
+    try { songAudio.src = resolved; songAudio.load(); } catch (e) {}
+  }
   // avval haqiqiy qo'shiqni urinib ko'ramiz
   const p = songAudio.play();
   if (p && p.then) {
-    p.then(() => { songOk = true; setPlayingUI(true); })
+    p.then(() => { songOk = true; stopSynth(); setPlayingUI(true); })
      .catch(() => { songOk = false; startSynth(); setPlayingUI(true); });
   } else {
     setPlayingUI(true);

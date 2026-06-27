@@ -47,7 +47,7 @@
     const me = curUser();
     const msgs = getMsgs();
     if (!msgs.length) {
-      listEl.innerHTML = '<div class="chat-empty">Бу — фақат иккимизга тегишли жой. 💗<br>Биринчи хабарни ёзиб қўй.</div>';
+      listEl.innerHTML = '<div class="chat-empty">Бу — фақат иккимизга тегишли жой. 💗<br>Биринчи хабарни ёзиб қўйинг.</div>';
       return;
     }
     listEl.innerHTML = '';
@@ -139,7 +139,7 @@
       '</div>' +
       '<div class="chat-list" id="chatList"></div>' +
       '<form class="chat-input-bar" id="chatForm" autocomplete="off">' +
-        '<textarea id="chatInput" rows="1" placeholder="Хабар ёз..." maxlength="2000"></textarea>' +
+        '<textarea id="chatInput" rows="1" placeholder="Хабар ёзинг..." maxlength="2000"></textarea>' +
         '<button class="chat-send" type="submit" aria-label="Юбориш">➤</button>' +
       '</form>';
     document.body.appendChild(panel);

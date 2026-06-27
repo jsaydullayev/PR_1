@@ -70,11 +70,11 @@
     else outcome = 'lose';
 
     if (outcome === 'win') {
-      verdict.textContent = 'Сен ютдинг!';
-      if (tease) tease.textContent = 'Ютган — сен. Жаҳонгирга шартингни ўзинг ёз:';
+      verdict.textContent = 'Сиз ютдингиз!';
+      if (tease) tease.textContent = 'Ютган — сиз. Жаҳонгирга шартингизни ўзингиз ёзинг:';
     } else if (outcome === 'lose') {
       verdict.textContent = 'Мен ютдим';
-      if (tease) tease.textContent = 'Қоидамизга кўра, шартни ёзаман — шу ерга ёзиб қўй:';
+      if (tease) tease.textContent = 'Қоидамизга кўра, шартни ёзаман — шу ерга ёзиб қўйинг:';
     } else {
       verdict.textContent = 'Дуранг!';
       if (tease) tease.textContent = 'Иккимиз ҳам тенг чиқдик — биргаликда бир шарт ёзинг:';
@@ -114,7 +114,7 @@
     result.classList.remove('show');
     doneMsg.classList.remove('show');
     choiceBtns.forEach((b) => b.classList.remove('picked'));
-    countEl.textContent = 'танлашингни кутяпман...';
+    countEl.textContent = 'танлашингизни кутяпман...';
     youHand.textContent = '✊';
     meHand.textContent = '✊';
     if (shartInput) { shartInput.value = ''; shartInput.hidden = false; }

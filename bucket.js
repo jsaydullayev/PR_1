@@ -38,7 +38,7 @@
     }
 
     if (!total) {
-      listEl.innerHTML = '<div class="bucket-empty">Рўйхат ҳали бўш. Биргаликда амалга оширмоқчи бўлган биринчи орзуни ёзиб қўй. ✦</div>';
+      listEl.innerHTML = '<div class="bucket-empty">Рўйхат ҳали бўш. Биргаликда амалга оширмоқчи бўлган биринчи орзуни ёзиб қўйинг. ✦</div>';
       return;
     }
     listEl.innerHTML = '';

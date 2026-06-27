@@ -8,3 +8,8 @@ Thumbs.db
 # Wrangler keshi (Cloudflare) — repo'da turmasin
 .wrangler/
 node_modules/
+
+# Design-tool vaqtinchalik fayllari (serverga kerak emas)
+.design-canvas.state.json
+design-canvas.jsx
+UI Konsept.html

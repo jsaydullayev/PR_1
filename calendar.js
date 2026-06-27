@@ -30,7 +30,7 @@
         '<div class="cal-modal-date" id="calMDate"></div>' +
         '<div class="cal-mem-list" id="calMList"></div>' +
         '<div class="cal-add">' +
-          '<textarea id="calMText" rows="3" placeholder="Бу кун ҳақида хотира ёз..."></textarea>' +
+          '<textarea id="calMText" rows="3" placeholder="Бу кун ҳақида хотира ёзинг..."></textarea>' +
           '<div class="cal-add-row">' +
             '<label class="cal-photo-btn"><input type="file" id="calMPhoto" accept="image/*" hidden>📷 Расм</label>' +
             '<img id="calMPhotoPrev" class="cal-photo-prev" alt="" hidden>' +
@@ -98,7 +98,7 @@
     const mem = (window.PJ && window.PJ.getMemories && window.PJ.getMemories()) || {};
     const arr = (mem[activeKey] || []).slice().sort(function (a, b) { return (a.at || 0) - (b.at || 0); });
     if (!arr.length) {
-      mList.innerHTML = '<div class="cal-empty">Бу кунга ҳали хотира йўқ. Биринчисини ёзиб қўй. 💗</div>';
+      mList.innerHTML = '<div class="cal-empty">Бу кунга ҳали хотира йўқ. Биринчисини ёзиб қўйинг. 💗</div>';
       return;
     }
     mList.innerHTML = '';
