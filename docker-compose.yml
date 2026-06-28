@@ -37,7 +37,8 @@ services:
     volumes:
       - media:/srv/media         # yuklangan musiqa (qayta ishga tushganda saqlanadi)
     ports:
-      - "8090:8090"
+      # Faqat localhost:8091 — tashqariga nginx (host, :8090) reverse-proxy qiladi.
+      - "127.0.0.1:8091:8090"
 
   # Avtomatik kunlik backup (pg_dump -> ./backups, 7 kundan eskisi o'chadi)
   backup:

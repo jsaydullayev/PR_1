@@ -16,4 +16,5 @@ COPY frontend/ /srv/static/
 
 EXPOSE 8090
 # Bitta worker — SSE pub/sub xotirada (in-memory) bo'lgani uchun.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "1"]
+# --proxy-headers: nginx ortida haqiqiy client IP (X-Forwarded-For) ni o'qiydi (rate-limit uchun).
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]
