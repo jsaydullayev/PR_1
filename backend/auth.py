@@ -46,6 +46,9 @@ async def seed_users() -> None:
                        ON CONFLICT (username) DO UPDATE SET pw_hash = EXCLUDED.pw_hash, display = EXCLUDED.display""",
                     u["username"], hash_password(u["password"]), u["display"],
                 )
+                # parol o'zgargan bo'lsa — eski sessiyalarni bekor qilamiz (xavfsizlik)
+                if row:
+                    await c.execute("DELETE FROM sessions WHERE username = $1", u["username"])
 
 
 # ---------------- sessiya ----------------

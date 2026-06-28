@@ -24,9 +24,10 @@ def now_ms() -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not settings.SESSION_SECRET:
-        # ogohlantirish: ishlab chiqarishda SESSION_SECRET ni env'da bering
-        print("WARN: SESSION_SECRET bo'sh — sessiyalar server qayta ishga tushganda ham saqlanadi (DB'da), lekin secret bering.")
+    if not settings.SESSION_SECRET or settings.SESSION_SECRET == "dev-secret-CHANGE-ME":
+        print("WARN: SESSION_SECRET o'rnatilmagan — .env'da kuchli qiymat bering (openssl rand -hex 32).")
+    if not settings.COOKIE_SECURE:
+        print("WARN: COOKIE_SECURE=0 — cookie ochiq HTTP orqali uchadi. HTTPS (Caddy/nginx) qo'yib COOKIE_SECURE=1 qiling!")
     await db.connect()
     await auth.seed_users()
     await auth.purge_expired()
@@ -227,11 +228,47 @@ async def clear_chat(user: dict = Depends(auth.require_user)):
     return {"ok": True}
 
 
+def _validate_restore(d: dict) -> None:
+    """Restore yukini hajm/son bo'yicha tekshiramiz (DoS/bloat oldini olish)."""
+    if d.get("photo") and len(d["photo"]) > settings.MAX_PHOTO:
+        raise HTTPException(status_code=422, detail="photo too large")
+    if d.get("shart") and len(d["shart"]) > settings.MAX_TEXT:
+        raise HTTPException(status_code=422, detail="shart too large")
+    bucket = d.get("bucket") or []
+    if not isinstance(bucket, list) or len(bucket) > settings.MAX_BUCKET:
+        raise HTTPException(status_code=422, detail="bucket invalid/too large")
+    mems = d.get("memories") or {}
+    chat = d.get("chat") or []
+    if not isinstance(mems, dict) or not isinstance(chat, list):
+        raise HTTPException(status_code=422, detail="invalid shape")
+    total = sum(len(v or []) for v in mems.values()) + len(chat)
+    if total > settings.MAX_ENTRIES:
+        raise HTTPException(status_code=422, detail="too many entries")
+    for arr in mems.values():
+        for e in (arr or []):
+            if not isinstance(e, dict):
+                continue
+            if e.get("text") and len(e["text"]) > settings.MAX_TEXT:
+                raise HTTPException(status_code=422, detail="memory text too large")
+            if e.get("photo") and len(e["photo"]) > settings.MAX_PHOTO:
+                raise HTTPException(status_code=422, detail="memory photo too large")
+    for m in chat:
+        if isinstance(m, dict) and m.get("text") and len(m["text"]) > settings.MAX_TEXT:
+            raise HTTPException(status_code=422, detail="chat text too large")
+
+
 @app.post("/api/restore")
 async def restore(request: Request, user: dict = Depends(auth.require_user)):
+    try:
+        clen = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        clen = 0
+    if clen > settings.MAX_BODY:
+        raise HTTPException(status_code=413, detail="payload too large")
     d = await request.json()
     if isinstance(d.get("data"), dict):
         d = d["data"]
+    _validate_restore(d)
     stamp = int(d.get("updatedAt") or now_ms())
     async with db.pool.acquire() as c:
         async with c.transaction():

@@ -185,6 +185,7 @@
   function showLogin() {
     currentUserObj = null;
     try { Store.stop(); } catch (e) {}
+    try { localStorage.removeItem('pj_answers'); } catch (e) {} // sessiya yo'q — maxfiy keshni tozalaymiz
     document.body.classList.remove('as-parizoda', 'as-jaxongir');
     document.body.classList.add('locked');
     const f = document.getElementById('loginForm'); if (f) f.reset();

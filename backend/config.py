@@ -33,6 +33,8 @@ class Settings:
     MAX_TEXT = int(os.environ.get("MAX_TEXT", "5000"))             # memory/chat matn
     MAX_PHOTO = int(os.environ.get("MAX_PHOTO", "1500000"))        # ~1.5MB dataURL
     MAX_BUCKET = int(os.environ.get("MAX_BUCKET", "500"))          # bucket elementlari
+    MAX_ENTRIES = int(os.environ.get("MAX_ENTRIES", "20000"))      # restore: jami memory+chat
+    MAX_BODY = int(os.environ.get("MAX_BODY", str(30 * 1024 * 1024)))  # restore so'rov tanasi (~30MB)
 
 
 settings = Settings()
