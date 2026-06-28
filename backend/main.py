@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Request, Response, HTTPException, Depends, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,13 @@ from config import settings
 
 def now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def clean_author(s) -> str:
+    """Author maydonidan HTML belgilarini olib tashlaymiz (XSS himoyasi)."""
+    if not s:
+        return ""
+    return str(s).replace("<", "").replace(">", "")[:64]
 
 
 @asynccontextmanager
@@ -88,15 +95,20 @@ def _set_cookie(resp: Response, token: str) -> None:
 @app.post("/api/login")
 async def login(body: LoginIn, request: Request, response: Response):
     ip = request.client.host if request.client else "?"
-    key = body.username.lower() + "|" + ip
-    if auth.login_locked(key):
+    uname = body.username.lower()
+    key = uname + "|" + ip
+    # per-IP VA per-username cheklov (taqsimlangan brute-force'ni ham qiyinlashtiradi)
+    if auth.login_locked(key) or auth.login_locked("u:" + uname):
         raise HTTPException(status_code=429, detail="too many attempts, try later")
     async with db.pool.acquire() as c:
-        row = await c.fetchrow("SELECT username, pw_hash, display FROM users WHERE username = $1", body.username.lower())
-    if not row or not auth.verify_password(body.password, row["pw_hash"]):
-        auth.login_fail(key)
+        row = await c.fetchrow("SELECT username, pw_hash, display FROM users WHERE username = $1", uname)
+    # constant-time: foydalanuvchi bo'lmasa ham dummy hash bilan tekshiramiz (timing/enumeration oldini olish)
+    pw_hash = row["pw_hash"] if row else auth.DUMMY_HASH
+    valid = auth.verify_password(body.password, pw_hash)
+    if not row or not valid:
+        auth.login_fail(key); auth.login_fail("u:" + uname)
         raise HTTPException(status_code=401, detail="invalid credentials")
-    auth.login_ok(key)
+    auth.login_ok(key); auth.login_ok("u:" + uname)
     token = await auth.create_session(row["username"])
     _set_cookie(response, token)
     return {"ok": True, "user": {"username": row["username"], "display": row["display"] or row["username"], "view": row["username"]}}
@@ -179,7 +191,7 @@ async def upsert_memory(body: MemoryIn, user: dict = Depends(auth.require_user))
                ON CONFLICT (id) DO UPDATE SET
                  date_key=EXCLUDED.date_key, body=EXCLUDED.body, photo=EXCLUDED.photo,
                  author=EXCLUDED.author, at=EXCLUDED.at""",
-            body.id, body.dateKey, body.text or "", body.photo, body.author or "", int(body.at or 0),
+            body.id, body.dateKey, body.text or "", body.photo, clean_author(body.author), int(body.at or 0),
         )
         await c.execute("UPDATE main_state SET updated_at = $1 WHERE id = 1", stamp)
     sse.broadcast()
@@ -291,7 +303,7 @@ async def restore(request: Request, user: dict = Depends(auth.require_user)):
                            ON CONFLICT (id) DO UPDATE SET date_key=EXCLUDED.date_key,
                              body=EXCLUDED.body, photo=EXCLUDED.photo, author=EXCLUDED.author, at=EXCLUDED.at""",
                         str(e["id"]), k, e.get("text") or "", e.get("photo"),
-                        e.get("author") or "", int(e.get("at") or 0),
+                        clean_author(e.get("author")), int(e.get("at") or 0),
                     )
             for m in (d.get("chat") or []):
                 if not m or not m.get("id"):
@@ -299,7 +311,7 @@ async def restore(request: Request, user: dict = Depends(auth.require_user)):
                 await c.execute(
                     """INSERT INTO chat (id, body, author, at) VALUES ($1,$2,$3,$4)
                        ON CONFLICT (id) DO UPDATE SET body=EXCLUDED.body, author=EXCLUDED.author, at=EXCLUDED.at""",
-                    str(m["id"]), m.get("text") or "", m.get("author") or "", int(m.get("at") or 0),
+                    str(m["id"]), m.get("text") or "", clean_author(m.get("author")), int(m.get("at") or 0),
                 )
     sse.broadcast()
     return {"ok": True, "updatedAt": stamp}
@@ -327,18 +339,27 @@ async def upload_music(file: UploadFile = File(...), user: dict = Depends(auth.r
     name = f"song-{now_ms()}{ext}"
     with open(os.path.join(settings.MEDIA_DIR, name), "wb") as f:
         f.write(data)
-    url = "/media/" + name
+    url = "/api/media/" + name   # auth ortidagi endpoint orqali beriladi
     stamp = now_ms()
     async with db.pool.acquire() as c:
         old = await c.fetchval("SELECT music FROM main_state WHERE id = 1")
         await c.execute("UPDATE main_state SET music = $1, updated_at = $2 WHERE id = 1", url, stamp)
-    if old and old.startswith("/media/"):  # eski faylni o'chiramiz
+    if old:  # eski faylni o'chiramiz
         try:
             os.remove(os.path.join(settings.MEDIA_DIR, os.path.basename(old)))
         except Exception:
             pass
     sse.broadcast()
     return {"ok": True, "music": url}
+
+
+@app.get("/api/media/{name}")
+async def get_media(name: str, user: dict = Depends(auth.require_user)):
+    safe = os.path.basename(name)  # path traversal'ni oldini olamiz
+    path = os.path.join(settings.MEDIA_DIR, safe)
+    if not safe or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(path)
 
 
 # ----------------------------- SSE (auth) -----------------------------
@@ -351,8 +372,8 @@ async def events(request: Request, user: dict = Depends(auth.require_user)):
     )
 
 
-# ----------------------------- MEDIA + STATIC (oxirida) -----------------------------
+# ----------------------------- STATIC (oxirida) -----------------------------
+# Eslatma: /media endi /api/media/{name} (auth ortida) orqali beriladi — ochiq mount yo'q.
 os.makedirs(settings.MEDIA_DIR, exist_ok=True)
-app.mount("/media", StaticFiles(directory=settings.MEDIA_DIR), name="media")
 if os.path.isdir(settings.STATIC_DIR):
     app.mount("/", StaticFiles(directory=settings.STATIC_DIR, html=True), name="static")

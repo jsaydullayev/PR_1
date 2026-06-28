@@ -32,10 +32,19 @@ def verify_password(pw: str, stored: str) -> bool:
         return False
 
 
+# Foydalanuvchi topilmaganda ham verify_password chaqirib, vaqtni tenglashtiramiz
+# (timing-attack / username enumeration oldini olish).
+DUMMY_HASH = hash_password("parizoda-dummy-not-a-real-password")
+
+
 async def seed_users() -> None:
     """Env'dagi foydalanuvchilarni users jadvaliga upsert qiladi (parol o'zgarsa yangilanadi)."""
+    users = parse_users()
+    if not users:
+        print("WARN: PARI_USERS bo'sh — hech kim kira olmaydi. .env'da PARI_USERS ni o'rnating!")
+        return
     async with db.pool.acquire() as c:
-        for u in parse_users():
+        for u in users:
             row = await c.fetchrow("SELECT pw_hash FROM users WHERE username = $1", u["username"])
             if row and verify_password(u["password"], row["pw_hash"]):
                 # parol o'zgarmagan — display'ni yangilab qo'yamiz

@@ -115,16 +115,21 @@
     arr.forEach(function (e) {
       const card = document.createElement('div');
       card.className = 'cal-mem';
-      let html = '';
-      if (e.photo) html += '<img class="cal-mem-img" src="' + e.photo + '" alt="">';
-      html += '<div class="cal-mem-body">';
-      if (e.text) html += '<p class="cal-mem-text"></p>';
-      html += '<div class="cal-mem-meta"><span class="cm-author">' + (e.author || '') + '</span><span class="cm-when">' + fmtWhen(e.at) + '</span></div>';
-      html += '<div class="cal-mem-actions"><button class="cm-edit" type="button">таҳрир</button><button class="cm-del" type="button">ўчириш</button></div>';
-      html += '</div>';
-      card.innerHTML = html;
+      // Struktura statik; dinamik qiymatlar (rasm src, author, matn) DOM orqali — XSS yo'q.
+      card.innerHTML =
+        '<div class="cal-mem-body">' +
+        (e.text ? '<p class="cal-mem-text"></p>' : '') +
+        '<div class="cal-mem-meta"><span class="cm-author"></span><span class="cm-when"></span></div>' +
+        '<div class="cal-mem-actions"><button class="cm-edit" type="button">таҳрир</button><button class="cm-del" type="button">ўчириш</button></div>' +
+        '</div>';
+      if (e.photo) {
+        const im = document.createElement('img'); im.className = 'cal-mem-img'; im.alt = ''; im.src = e.photo;
+        im.addEventListener('click', function () { lightbox(e.photo); });
+        card.insertBefore(im, card.firstChild);
+      }
       if (e.text) card.querySelector('.cal-mem-text').textContent = e.text;
-      if (e.photo) card.querySelector('.cal-mem-img').addEventListener('click', function () { lightbox(e.photo); });
+      card.querySelector('.cm-author').textContent = e.author || '';
+      card.querySelector('.cm-when').textContent = fmtWhen(e.at);
       card.querySelector('.cm-edit').addEventListener('click', function () { startEdit(e); });
       card.querySelector('.cm-del').addEventListener('click', function () { doDelete(e.id); });
       mList.appendChild(card);
@@ -264,9 +269,10 @@
         const dp = it.key.split('-');
         let h = '<div class="ac-date">' + (+dp[2]) + '-' + MONTHS[+dp[1] - 1].toLowerCase() + '</div>';
         if (it.e.text) h += '<div class="ac-text"></div>';
-        if (it.e.author) h += '<div class="ac-author">' + it.e.author + '</div>';
+        if (it.e.author) h += '<div class="ac-author"></div>';
         body.innerHTML = h;
         if (it.e.text) body.querySelector('.ac-text').textContent = it.e.text;
+        if (it.e.author) body.querySelector('.ac-author').textContent = it.e.author;
         card.appendChild(body);
         grid.appendChild(card);
       });

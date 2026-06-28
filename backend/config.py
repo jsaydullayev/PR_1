@@ -21,11 +21,9 @@ class Settings:
 
     # Foydalanuvchilar:  "username:parol:Display,username2:parol2:Display2"
     # Parollar startda pbkdf2 bilan hashlanadi va users jadvaliga upsert qilinadi.
-    USERS_RAW = os.environ.get(
-        "PARI_USERS",
-        "parizoda:parizodam:Паризода,"
-        "jaxongir:parizodam:Жаҳонгир",
-    )
+    # MUHIM: default BO'SH (fail-closed). PARI_USERS .env'da berilmasa hech kim
+    # kira olmaydi — kodda ommaga ma'lum parol qolmaydi.
+    USERS_RAW = os.environ.get("PARI_USERS", "")
 
     # Kirish urinishlarini cheklash
     LOGIN_MAX_FAILS = int(os.environ.get("LOGIN_MAX_FAILS", "8"))

@@ -31,7 +31,7 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-dev-secret-CHANGE-ME}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
       COOKIE_SECURE: ${COOKIE_SECURE:-0}
-      PARI_USERS: ${PARI_USERS:-parizoda:parizodam:Паризода,jaxongir:parizodam:Жаҳонгир}
+      PARI_USERS: ${PARI_USERS:-}   # .env'da bering! Bo'sh bo'lsa hech kim kira olmaydi (fail-closed)
       STATIC_DIR: /srv/static
       MEDIA_DIR: /srv/media
     volumes:
