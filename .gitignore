@@ -19,3 +19,7 @@ UI Konsept.html
 # Python
 __pycache__/
 *.pyc
+
+# Maxfiy sozlamalar va backuplar (serverda turadi, git'da emas)
+.env
+backups/

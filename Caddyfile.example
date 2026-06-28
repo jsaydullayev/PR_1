@@ -1,0 +1,15 @@
+# HTTPS uchun namuna (DOMEN kerak). Domeningiz bo'lsa:
+#   1) DNS A-yozuvi domenni 158.220.123.53 ga yo'naltirsin
+#   2) bu faylni "Caddyfile" deb nusxa oling, sizning.domeningiz ni yozing
+#   3) docker-compose'ga caddy servisini qo'shing (DEPLOY.md ga qarang)
+#   4) .env'da COOKIE_SECURE=1 qiling (cookie faqat HTTPS orqali yuriydi)
+#
+# Caddy avtomatik Let's Encrypt sertifikat oladi va :443 -> app:8090 ga uzatadi.
+
+sizning.domeningiz {
+    encode gzip
+    reverse_proxy app:8090 {
+        # SSE uchun: bufferlashni o'chirish
+        flush_interval -1
+    }
+}

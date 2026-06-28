@@ -1,12 +1,14 @@
-# Parizoda — PostgreSQL + FastAPI (API + SSE + statik sayt), bitta portda (8090).
-# Serverda ishga tushirish:  git pull && docker compose up -d --build
+# Parizoda — PostgreSQL + FastAPI (API + SSE + statik) + avtomatik backup.
+# Sirlar .env faylidan o'qiladi (qarang: .env.example). Serverda ishga tushirish:
+#   cp .env.example .env   (va qiymatlarni to'ldiring)
+#   docker compose up -d --build
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: pari
-      POSTGRES_PASSWORD: pari_secret_2026
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pari_secret_2026}
       POSTGRES_DB: parizoda
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -25,11 +27,40 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://pari:pari_secret_2026@db:5432/parizoda
-      API_TOKEN: "pari-2026-7f3a9c"   # frontend (index.html) shu tokenni X-Auth bilan yuboradi
+      DATABASE_URL: postgresql://pari:${POSTGRES_PASSWORD:-pari_secret_2026}@db:5432/parizoda
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-CHANGE-ME}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+      PARI_USERS: ${PARI_USERS:-parizoda:parizodam:Паризода,jaxongir:parizodam:Жаҳонгир}
       STATIC_DIR: /srv/static
     ports:
       - "8090:8090"
+
+  # Avtomatik kunlik backup (pg_dump -> ./backups, 7 kundan eskisi o'chadi)
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-pari_secret_2026}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "backup xizmati ishga tushdi";
+        while true; do
+          ts=$$(date +%F_%H%M);
+          if pg_dump -h db -U pari parizoda > /backups/parizoda-$$ts.sql 2>/tmp/e; then
+            echo "backup $$ts ok ($$(wc -c </backups/parizoda-$$ts.sql) bayt)";
+          else
+            echo "backup xato: $$(cat /tmp/e)";
+          fi;
+          find /backups -name 'parizoda-*.sql' -mtime +7 -delete 2>/dev/null || true;
+          sleep 86400;
+        done
 
 volumes:
   pgdata:

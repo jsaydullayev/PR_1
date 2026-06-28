@@ -1,27 +1,26 @@
 /* ============================================================
    Parizoda — login + 2 sahifa + sinxron javob/rasm
-   Saqlash: SERVER (FastAPI + PostgreSQL). Ma'lumot serverdagi bazada;
-   o'zgarish SSE (/api/events) orqali ikkala qurilmada DARHOL ko'rinadi.
-   localStorage faqat tezkor ko'rsatish (kesh) uchun ishlatiladi.
+   Saqlash: SERVER (FastAPI + PostgreSQL), cookie-sessiya auth.
+   O'zgarish SSE (/api/events) orqali ikkala qurilmada DARHOL ko'rinadi.
+   localStorage faqat tezkor ko'rsatish (kesh) uchun.
    ============================================================ */
 (function () {
-  const LS_SESSION = 'pj_session';
+  // username -> view (parol endi SERVERDA, kodda emas)
+  const VIEW_OF = { parizoda: 'parizoda', jaxongir: 'jaxongir' };
 
-  const USERS = {
-    parizoda: { pw: 'parizodam', view: 'parizoda' },
-    jaxongir: { pw: 'parizodam', view: 'jaxongir' },
-  };
+  let currentUserObj = null; // { username, display, view }
 
-  /* ---------- STORE: server (FastAPI + PostgreSQL) + SSE real-time ---------- */
+  /* ---------- STORE: server (FastAPI + PostgreSQL) + SSE ---------- */
   const Store = (function () {
     const BLANK = { lovePercent: null, madeUp: false, madeUpAt: null, photo: null, shart: null, shartAt: null, memories: {}, bucket: [], chat: [], updatedAt: null };
     let data = Object.assign({}, BLANK, { memories: {}, bucket: [], chat: [] });
     let cb = null;
     const mode = 'server';
-    const LS = 'pj_answers';                 // mahalliy kesh (tezkor ko'rsatish + offline ko'rinish)
+    const LS = 'pj_answers';
     const listeners = [];
     const API = (window.PARI_API_BASE || '');
-    const TOKEN = (window.PARI_API_TOKEN || '');
+    let onAuth = null;     // 401 bo'lganda chaqiriladi (login ko'rsatish)
+    let started = false;
 
     function readLS() { try { return JSON.parse(localStorage.getItem(LS) || 'null') || {}; } catch (e) { return {}; } }
     function writeLS() { try { localStorage.setItem(LS, JSON.stringify(data)); } catch (e) { try { toast('Сақлаб бўлмади — хотира тўлди'); } catch (e2) {} } }
@@ -29,65 +28,70 @@
     function emit() { normalize(); if (cb) cb(data); for (var i = 0; i < listeners.length; i++) { try { listeners[i](data); } catch (e) {} } }
     function toastSafe(msg) { try { toast(msg || 'Серверга сақланмади — интернетни текширинг'); } catch (e) {} }
 
+    function handle401() { try { if (onAuth) onAuth(); } catch (e) {} }
+
     function apiGet(path) {
-      return fetch(API + path, { headers: { 'Accept': 'application/json' } })
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+      return fetch(API + path, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+        .then(function (r) { if (r.status === 401) { handle401(); throw new Error('401'); } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     }
     function apiSend(method, path, body) {
       return fetch(API + path, {
         method: method,
-        headers: { 'Content-Type': 'application/json', 'X-Auth': TOKEN },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: body ? JSON.stringify(body) : undefined,
-      }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json().catch(function () { return {}; }); });
+      }).then(function (r) { if (r.status === 401) { handle401(); throw new Error('401'); } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json().catch(function () { return {}; }); });
     }
 
-    function setServerState(s) {
-      data = Object.assign({}, BLANK, s);
-      normalize();
-      writeLS();          // keshni yangilab boramiz
-      emit();
-    }
-    function refresh() {
-      return apiGet('/api/state').then(setServerState).catch(function (e) { console.warn('state load xato:', e && e.message); });
+    // yozish xatosida: server haqiqatiga qaytaramiz (optimistik o'zgarishni bekor qilamiz)
+    function onWriteError(e) {
+      if (e && String(e.message) === '401') return; // login ekraniga o'tdik
+      console.warn('yozishda xato:', e && e.message);
+      toastSafe();
+      refresh(); // serverdan qayta yuklab, saqlanmaganni qaytaramiz
     }
 
-    // --- real-time: SSE (server push) + xavfsizlik uchun kam-chastotali version-poll ---
+    function setServerState(s) { data = Object.assign({}, BLANK, s); normalize(); writeLS(); emit(); }
+    function refresh() { return apiGet('/api/state').then(setServerState).catch(function (e) { if (String(e.message) !== '401') console.warn('state load xato:', e && e.message); }); }
+
     var es = null, pollTimer = null;
     function connectSSE() {
       try {
-        es = new EventSource(API + '/api/events');
+        if (es) es.close();
+        es = new EventSource(API + '/api/events', { withCredentials: true });
         es.addEventListener('update', function () { refresh(); });
-        // EventSource xato bo'lsa o'zi qayta ulanadi — alohida ishlov shart emas.
-      } catch (e) { /* brauzer SSE'ni qo'llamasa — quyidagi poll qoplaydi */ }
+      } catch (e) { /* poll qoplaydi */ }
       clearInterval(pollTimer);
       pollTimer = setInterval(function () {
-        apiGet('/api/version').then(function (v) {
-          if (v && v.updatedAt && v.updatedAt !== data.updatedAt) refresh();
-        }).catch(function () {});
+        apiGet('/api/version').then(function (v) { if (v && v.updatedAt && v.updatedAt !== data.updatedAt) refresh(); }).catch(function () {});
       }, 20000);
     }
 
     function init(onChange) {
       cb = onChange;
-      // 1) keshdan darhol ko'rsatamiz (instant paint)
-      data = Object.assign({}, BLANK, readLS()); normalize(); setTimeout(emit, 0);
-      // 2) serverdan haqiqiy holat
-      refresh();
-      // 3) real-time ulanish
-      connectSSE();
+      if (started) { refresh(); return; }
+      started = true;
+      data = Object.assign({}, BLANK, readLS()); normalize(); setTimeout(emit, 0); // keshdan tez paint
+      refresh();        // serverdan haqiqiy holat
+      connectSSE();     // real-time
       console.log('%cParizoda: server rejimi (FastAPI + PostgreSQL) 💗', 'color:#D6537E');
     }
+    function stop() {
+      started = false;
+      try { if (es) es.close(); } catch (e) {} es = null;
+      clearInterval(pollTimer);
+    }
 
-    // To'liq ma'lumotni serverga yozish (restore / seed) — avtoritar (o'chirishlar ham).
     function pushAll(obj) {
-      var payload = obj || readLS();
-      return apiSend('POST', '/api/restore', payload).then(function () { return true; })
-        .catch(function (e) { console.warn('restore xato:', e && e.message); return false; });
+      return apiSend('POST', '/api/restore', obj || readLS()).then(function () { return true; }).catch(function (e) { onWriteError(e); return false; });
     }
 
     function patch(p) {
-      data = Object.assign({}, data, p, { updatedAt: Date.now() }); normalize(); writeLS(); emit(); // optimistik
-      apiSend('PATCH', '/api/main', p).catch(function (e) { console.warn('saqlashda xato:', e && e.message); toastSafe(); });
+      var prevVals = {}; Object.keys(p).forEach(function (k) { prevVals[k] = data[k]; }); var prevUpd = data.updatedAt;
+      data = Object.assign({}, data, p, { updatedAt: Date.now() }); normalize(); writeLS(); emit();
+      apiSend('PATCH', '/api/main', p).catch(function (e) {
+        if (String(e.message) !== '401') { data = Object.assign({}, data, prevVals, { updatedAt: prevUpd }); normalize(); writeLS(); emit(); toastSafe(); }
+      });
     }
 
     // ---------- xotiralar ----------
@@ -95,8 +99,7 @@
       normalize();
       if (!data.memories[dateKey]) data.memories[dateKey] = [];
       data.memories[dateKey].push(entry); writeLS(); emit();
-      apiSend('POST', '/api/memory', Object.assign({ dateKey: dateKey }, entry))
-        .catch(function (e) { console.warn('xotira saqlash xato:', e && e.message); toastSafe(); });
+      apiSend('POST', '/api/memory', Object.assign({ dateKey: dateKey }, entry)).catch(onWriteError);
     }
     function updateMemory(dateKey, id, fields) {
       normalize();
@@ -104,8 +107,7 @@
       var merged = null;
       for (var i = 0; i < arr.length; i++) if (arr[i].id === id) { arr[i] = Object.assign({}, arr[i], fields); merged = arr[i]; break; }
       writeLS(); emit();
-      if (merged) apiSend('POST', '/api/memory', Object.assign({ dateKey: dateKey }, merged))
-        .catch(function (e) { console.warn('xotira yangilash xato:', e && e.message); toastSafe(); });
+      if (merged) apiSend('POST', '/api/memory', Object.assign({ dateKey: dateKey }, merged)).catch(onWriteError);
     }
     function deleteMemory(dateKey, id) {
       normalize();
@@ -113,64 +115,50 @@
       data.memories[dateKey] = arr.filter(function (e) { return e.id !== id; });
       if (data.memories[dateKey].length === 0) delete data.memories[dateKey];
       writeLS(); emit();
-      apiSend('DELETE', '/api/memory/' + encodeURIComponent(id))
-        .catch(function (e) { console.warn('xotira ochirish xato:', e && e.message); toastSafe(); });
+      apiSend('DELETE', '/api/memory/' + encodeURIComponent(id)).catch(onWriteError);
     }
 
     // ---------- orzular (bucket) ----------
     function saveBucket() {
       writeLS(); emit();
-      apiSend('PUT', '/api/bucket', { bucket: data.bucket })
-        .catch(function (e) { console.warn('orzu saqlash xato:', e && e.message); toastSafe(); });
+      apiSend('PUT', '/api/bucket', { bucket: data.bucket }).catch(onWriteError);
     }
     function addBucket(item) { normalize(); data.bucket.push(item); saveBucket(); }
-    function updateBucket(id, fields) {
-      normalize();
-      for (var i = 0; i < data.bucket.length; i++) if (data.bucket[i].id === id) { data.bucket[i] = Object.assign({}, data.bucket[i], fields); break; }
-      saveBucket();
-    }
+    function updateBucket(id, fields) { normalize(); for (var i = 0; i < data.bucket.length; i++) if (data.bucket[i].id === id) { data.bucket[i] = Object.assign({}, data.bucket[i], fields); break; } saveBucket(); }
     function deleteBucket(id) { normalize(); data.bucket = data.bucket.filter(function (b) { return b.id !== id; }); saveBucket(); }
 
     // ---------- maxfiy chat ----------
     function addChat(msg) {
       normalize(); data.chat.push(msg); writeLS(); emit();
-      apiSend('POST', '/api/chat', msg).catch(function (e) { console.warn('chat saqlash xato:', e && e.message); toastSafe(); });
+      apiSend('POST', '/api/chat', msg).catch(onWriteError);
     }
     function deleteChat(id) {
       normalize(); data.chat = data.chat.filter(function (m) { return m.id !== id; }); writeLS(); emit();
-      apiSend('DELETE', '/api/chat/' + encodeURIComponent(id)).catch(function (e) { console.warn('chat ochirish xato:', e && e.message); });
+      apiSend('DELETE', '/api/chat/' + encodeURIComponent(id)).catch(onWriteError);
     }
     function clearChat() {
       normalize(); data.chat = []; writeLS(); emit();
-      apiSend('POST', '/api/chat/clear').catch(function (e) { console.warn('chat tozalash xato:', e && e.message); });
+      apiSend('POST', '/api/chat/clear').catch(onWriteError);
     }
 
-    // server rejimida "qayta yuklash" = serverdan yangilash
     function reloadLS() { refresh(); return true; }
 
     return {
-      init: init,
-      reloadLS: reloadLS,
-      forceUpload: function () { return pushAll(readLS()); },   // keshni serverga (avtoritar)
+      init: init, stop: stop, reloadLS: reloadLS, refresh: refresh,
+      setAuthHandler: function (fn) { onAuth = fn; },
+      forceUpload: function () { return pushAll(readLS()); },
       restoreToCloud: function () { return pushAll(readLS()); },
       pushAll: pushAll,
-      refresh: refresh,
       get: function () { return data; },
       setAnswer: function (a) { patch(a); },
       setPhoto: function (url) { patch({ photo: url }); },
       setShart: function (text) { patch({ shart: text, shartAt: Date.now() }); },
       getMemories: function () { normalize(); return data.memories; },
-      addMemory: addMemory,
-      updateMemory: updateMemory,
-      deleteMemory: deleteMemory,
+      addMemory: addMemory, updateMemory: updateMemory, deleteMemory: deleteMemory,
       getBucket: function () { normalize(); return data.bucket; },
-      addBucket: addBucket,
-      updateBucket: updateBucket,
-      deleteBucket: deleteBucket,
+      addBucket: addBucket, updateBucket: updateBucket, deleteBucket: deleteBucket,
       getChat: function () { normalize(); return data.chat; },
-      addChat: addChat,
-      deleteChat: deleteChat,
-      clearChat: clearChat,
+      addChat: addChat, deleteChat: deleteChat, clearChat: clearChat,
       onUpdate: function (fn) { if (typeof fn === 'function') listeners.push(fn); },
       get mode() { return mode; },
     };
@@ -194,15 +182,26 @@
     if (view === 'parizoda') preloadSlider();
     if (view === 'jaxongir') startDashPoll();
   }
-  function logout() {
-    localStorage.removeItem(LS_SESSION);
+  function showLogin() {
+    currentUserObj = null;
+    try { Store.stop(); } catch (e) {}
     document.body.classList.remove('as-parizoda', 'as-jaxongir');
     document.body.classList.add('locked');
     const f = document.getElementById('loginForm'); if (f) f.reset();
     window.scrollTo(0, 0);
   }
+  function startApp(user) {
+    currentUserObj = user;
+    applyView(user.view || VIEW_OF[user.username] || 'parizoda');
+    Store.init(onData);
+    if (window.MemoryCalendar && typeof window.MemoryCalendar.boot === 'function') window.MemoryCalendar.boot();
+  }
+  function logout() {
+    fetch((window.PARI_API_BASE || '') + '/api/logout', { method: 'POST', credentials: 'same-origin' }).catch(function () {});
+    showLogin();
+  }
 
-  /* ---------- login ---------- */
+  /* ---------- login (server) ---------- */
   function setupLogin() {
     const form = document.getElementById('loginForm');
     const err = document.getElementById('loginErr');
@@ -211,17 +210,31 @@
       e.preventDefault();
       const u = (document.getElementById('loginUser').value || '').trim().toLowerCase();
       const p = (document.getElementById('loginPass').value || '').trim();
-      const rec = USERS[u];
-      if (rec && rec.pw === p) {
+      const btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      fetch((window.PARI_API_BASE || '') + '/api/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body: JSON.stringify({ username: u, password: p }),
+      }).then(function (r) {
+        if (!r.ok) throw new Error(r.status === 429 ? 'too many' : 'bad');
+        return r.json();
+      }).then(function (res) {
         err.classList.remove('show');
-        localStorage.setItem(LS_SESSION, u);
-        applyView(rec.view);
-      } else {
+        startApp(res.user);
+      }).catch(function (ex) {
+        err.textContent = String(ex.message) === 'too many' ? 'Жуда кўп уриниш. Бироздан сўнг қайта уриниб кўринг.' : 'Маълумотлар нотўғри. Қайта уриниб кўринг.';
         err.classList.add('show');
         form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake');
-      }
+      }).finally(function () { if (btn) btn.disabled = false; });
     });
     document.querySelectorAll('[data-logout]').forEach(function (b) { b.addEventListener('click', logout); });
+  }
+
+  function checkSession() {
+    fetch((window.PARI_API_BASE || '') + '/api/me', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (res) { if (res && res.user) startApp(res.user); else showLogin(); })
+      .catch(function () { showLogin(); });
   }
 
   /* ---------- Parizoda: javobni yozish ---------- */
@@ -263,7 +276,6 @@
     c.getContext('2d').drawImage(bmp, 0, 0, w, h);
     return c.toDataURL('image/jpeg', q);
   }
-  // Tarmoq/saqlash uchun rasmni oqilona o'lchamga (~700KB) keltiramiz.
   async function compressImage(file, budget) {
     budget = budget || 700 * 1024;
     const bmp = await createImageBitmap(file);
@@ -399,15 +411,15 @@
     setupLogin();
     setupParizoda();
     setupPhoto();
-    const refresh = document.getElementById('dashRefresh');
-    if (refresh) refresh.addEventListener('click', function () {
+    const refreshBtn = document.getElementById('dashRefresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', function () {
       try { Store.refresh(); } catch (e) {}
       renderDashboard();
       if (window.BucketList && window.BucketList.render) window.BucketList.render();
       if (window.MemoryCalendar && window.MemoryCalendar.render) window.MemoryCalendar.render();
       toast('🔄 Янгиланди');
     });
-    Store.init(onData);
+    Store.setAuthHandler(showLogin); // sessiya tugasa login ekranига qaytamiz
     window.PJ = {
       setShart: function (t) { Store.setShart(t); },
       getMemories: function () { return Store.getMemories(); },
@@ -426,16 +438,9 @@
       uploadLocalToCloud: function () { return Store.forceUpload(); },
       restoreToCloud: function () { return Store.restoreToCloud(); },
       mode: function () { return Store.mode; },
-      currentUser: function () {
-        if (document.body.classList.contains('as-jaxongir')) return 'Жаҳонгир';
-        if (document.body.classList.contains('as-parizoda')) return 'Паризода';
-        return '';
-      },
+      currentUser: function () { return currentUserObj ? currentUserObj.display : ''; },
     };
-    if (window.MemoryCalendar && typeof window.MemoryCalendar.boot === 'function') window.MemoryCalendar.boot();
-    const sess = localStorage.getItem(LS_SESSION);
-    if (sess && USERS[sess]) applyView(USERS[sess].view);
-    else document.body.classList.add('locked');
+    checkSession();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();

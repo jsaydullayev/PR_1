@@ -37,12 +37,11 @@
     var m = new RegExp('[?&]' + name + '=([^&#]*)').exec(src);
     return m ? decodeURIComponent(m[1]) : '';
   }
-  // Token/chat: havolada (?tg_token=&tg_chat=) bo'lsa o'shandan, bo'lmasa quyidagi default.
-  // (Bo'laklab yozilgan — skaner topmasin. BACKUP OLINGACH @BotFather/revoke bilan bekor qiling.)
-  var TG_TOKEN = '8960010847' + ':' + 'AAFf6v2DnClYaM8pIKazn' + 'Dzxp7AFYPlVa4U';
-  var TG_CHAT = '1630199811';
+  // Telegram token/chat KODDA TURMAYDI (xavfsizlik). Faqat havola orqali beriladi:
+  //   ...?backup&tg_token=<TOKEN>&tg_chat=<CHATID>
+  // (Eski commitlardagi token @BotFather'da revoke qilingan bo'lsin.)
   function getTgConfig() {
-    return { token: getParam('tg_token') || TG_TOKEN, chat: getParam('tg_chat') || TG_CHAT };
+    return { token: getParam('tg_token'), chat: getParam('tg_chat') };
   }
 
   // ---------- UI ----------

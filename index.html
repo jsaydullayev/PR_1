@@ -344,17 +344,16 @@
 <div class="music-hint" id="musicHint">бизнинг қўшиғимиз</div>
 
 <script>
-  /* Backend API sozlamalari (server: FastAPI + PostgreSQL). Bir xil origin -> '/api'. */
-  window.PARI_API_BASE = '';                 // bo'sh = shu sayt origin'i (/api/...)
-  window.PARI_API_TOKEN = 'pari-2026-7f3a9c';// docker-compose API_TOKEN bilan bir xil
+  /* Backend API (FastAPI + PostgreSQL). Cookie-sessiya auth — token kerak emas. */
+  window.PARI_API_BASE = '';   // bo'sh = shu sayt origin'i (/api/...)
 </script>
 <script src="app.js?v=10"></script>
 <script src="game-rps.js?v=9"></script>
-<script src="account.js?v=20"></script>
+<script src="account.js?v=21"></script>
 <script src="calendar.js?v=4"></script>
 <script src="bucket.js?v=3"></script>
 <script src="chat.js?v=3"></script>
-<script src="backup.js?v=20"></script>
+<script src="backup.js?v=21"></script>
 <script>
 (function () {
   var KEY = 'pj_theme';

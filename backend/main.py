@@ -1,156 +1,140 @@
 """
-Parizoda backend — FastAPI + PostgreSQL + SSE (real-time).
-- Statik saytni (/) va API'ni (/api/*) bitta portda (8090) beradi.
-- Ma'lumot serverdagi PostgreSQL'da saqlanadi (yagona haqiqat manbai).
-- O'zgarish bo'lganda SSE (/api/events) orqali barcha ochiq mijozlarga darhol push qilinadi.
+Parizoda backend — FastAPI + PostgreSQL + SSE, cookie-sessiya auth bilan.
+Statik sayt (/) ochiq; barcha /api/* (login/me/health'dan tashqari) sessiyani talab qiladi.
 """
 import os
-import json
 import time
-import asyncio
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional
 
-import asyncpg
-from fastapi import FastAPI, Request, HTTPException, Header
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import FastAPI, Request, Response, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://pari:pari@db:5432/parizoda")
-API_TOKEN = os.environ.get("API_TOKEN", "")          # bo'sh bo'lsa yozish autentifikatsiyasi o'chiq
-STATIC_DIR = os.environ.get("STATIC_DIR", "/srv/static")
-
-pool: asyncpg.Pool | None = None
-subscribers: set[asyncio.Queue] = set()
+import db
+import auth
+import sse
+from config import settings
 
 
 def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def broadcast() -> None:
-    """Barcha SSE mijozlariga 'update' signalini yuboramiz."""
-    for q in list(subscribers):
-        try:
-            q.put_nowait("update")
-        except Exception:
-            pass
-
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS main_state (
-  id          int PRIMARY KEY DEFAULT 1,
-  love_percent int,
-  made_up     boolean DEFAULT false,
-  made_up_at  bigint,
-  photo       text,
-  shart       text,
-  shart_at    bigint,
-  bucket      jsonb DEFAULT '[]'::jsonb,
-  updated_at  bigint DEFAULT 0,
-  CONSTRAINT main_state_single CHECK (id = 1)
-);
-INSERT INTO main_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
-
-CREATE TABLE IF NOT EXISTS memories (
-  id       text PRIMARY KEY,
-  date_key text,
-  body     text,
-  photo    text,
-  author   text,
-  at       bigint
-);
-
-CREATE TABLE IF NOT EXISTS chat (
-  id     text PRIMARY KEY,
-  body   text,
-  author text,
-  at     bigint
-);
-"""
-
-
-async def _init_conn(conn: asyncpg.Connection) -> None:
-    # jsonb'ni avtomatik Python obyektiga aylantirish
-    await conn.set_type_codec(
-        "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
-    )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global pool
-    last_err = None
-    for _ in range(60):  # Postgres tayyor bo'lguncha kutamiz
-        try:
-            pool = await asyncpg.create_pool(
-                DATABASE_URL, min_size=1, max_size=10, init=_init_conn
-            )
-            break
-        except Exception as e:  # noqa
-            last_err = e
-            await asyncio.sleep(1)
-    if pool is None:
-        raise RuntimeError(f"Postgres ulanmadi: {last_err}")
-    async with pool.acquire() as c:
-        await c.execute(SCHEMA)
+    if not settings.SESSION_SECRET:
+        # ogohlantirish: ishlab chiqarishda SESSION_SECRET ni env'da bering
+        print("WARN: SESSION_SECRET bo'sh — sessiyalar server qayta ishga tushganda ham saqlanadi (DB'da), lekin secret bering.")
+    await db.connect()
+    await auth.seed_users()
+    await auth.purge_expired()
     yield
-    if pool:
-        await pool.close()
+    await db.close()
 
 
 app = FastAPI(lifespan=lifespan, title="Parizoda API")
 
 
-def check_auth(token: str | None) -> None:
-    if API_TOKEN and token != API_TOKEN:
-        raise HTTPException(status_code=401, detail="unauthorized")
+# ----------------------------- Pydantic modellar -----------------------------
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
 
 
-async def build_state(c: asyncpg.Connection) -> dict:
-    row = await c.fetchrow("SELECT * FROM main_state WHERE id = 1")
-    mems = await c.fetch("SELECT * FROM memories")
-    chats = await c.fetch("SELECT * FROM chat ORDER BY at ASC")
-    memmap: dict[str, list] = {}
-    for m in mems:
-        k = m["date_key"] or "0000-00-00"
-        memmap.setdefault(k, []).append({
-            "id": m["id"], "text": m["body"] or "", "photo": m["photo"],
-            "author": m["author"] or "", "at": m["at"] or 0,
-        })
-    return {
-        "lovePercent": row["love_percent"],
-        "madeUp": row["made_up"],
-        "madeUpAt": row["made_up_at"],
-        "photo": row["photo"],
-        "shart": row["shart"],
-        "shartAt": row["shart_at"],
-        "bucket": row["bucket"] or [],
-        "memories": memmap,
-        "chat": [{"id": x["id"], "text": x["body"] or "", "author": x["author"] or "", "at": x["at"] or 0} for x in chats],
-        "updatedAt": row["updated_at"],
-    }
+class MainPatch(BaseModel):
+    lovePercent: Optional[int] = Field(default=None, ge=0, le=1000)
+    madeUp: Optional[bool] = None
+    madeUpAt: Optional[int] = None
+    photo: Optional[str] = Field(default=None, max_length=settings.MAX_PHOTO)
+    shart: Optional[str] = Field(default=None, max_length=settings.MAX_TEXT)
+    shartAt: Optional[int] = None
+    bucket: Optional[List[Dict[str, Any]]] = None
+    updatedAt: Optional[int] = None
 
 
-# ----------------------------- READ -----------------------------
+class MemoryIn(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    dateKey: Optional[str] = Field(default=None, max_length=20)
+    text: Optional[str] = Field(default="", max_length=settings.MAX_TEXT)
+    photo: Optional[str] = Field(default=None, max_length=settings.MAX_PHOTO)
+    author: Optional[str] = Field(default="", max_length=64)
+    at: Optional[int] = 0
+
+
+class ChatIn(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    text: Optional[str] = Field(default="", max_length=settings.MAX_TEXT)
+    author: Optional[str] = Field(default="", max_length=64)
+    at: Optional[int] = 0
+
+
+class BucketIn(BaseModel):
+    bucket: List[Dict[str, Any]] = Field(default_factory=list, max_length=settings.MAX_BUCKET)
+
+
+# ----------------------------- AUTH -----------------------------
+def _set_cookie(resp: Response, token: str) -> None:
+    resp.set_cookie(
+        key=settings.COOKIE_NAME, value=token,
+        max_age=settings.SESSION_TTL_DAYS * 86400,
+        httponly=True, samesite=settings.COOKIE_SAMESITE,
+        secure=settings.COOKIE_SECURE, path="/",
+    )
+
+
+@app.post("/api/login")
+async def login(body: LoginIn, request: Request, response: Response):
+    ip = request.client.host if request.client else "?"
+    key = body.username.lower() + "|" + ip
+    if auth.login_locked(key):
+        raise HTTPException(status_code=429, detail="too many attempts, try later")
+    async with db.pool.acquire() as c:
+        row = await c.fetchrow("SELECT username, pw_hash, display FROM users WHERE username = $1", body.username.lower())
+    if not row or not auth.verify_password(body.password, row["pw_hash"]):
+        auth.login_fail(key)
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    auth.login_ok(key)
+    token = await auth.create_session(row["username"])
+    _set_cookie(response, token)
+    return {"ok": True, "user": {"username": row["username"], "display": row["display"] or row["username"], "view": row["username"]}}
+
+
+@app.post("/api/logout")
+async def logout(request: Request, response: Response):
+    token = request.cookies.get(settings.COOKIE_NAME)
+    await auth.delete_session(token)
+    response.delete_cookie(settings.COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/me")
+async def me(request: Request):
+    user = await auth.session_user(request.cookies.get(settings.COOKIE_NAME))
+    return {"user": user}
+
+
 @app.get("/api/health")
 async def health():
     return {"ok": True}
 
 
+# ----------------------------- READ (auth) -----------------------------
 @app.get("/api/state")
-async def get_state():
-    async with pool.acquire() as c:
-        return await build_state(c)
+async def get_state(user: dict = Depends(auth.require_user)):
+    async with db.pool.acquire() as c:
+        return await db.build_state(c)
 
 
 @app.get("/api/version")
-async def get_version():
-    async with pool.acquire() as c:
+async def get_version(user: dict = Depends(auth.require_user)):
+    async with db.pool.acquire() as c:
         v = await c.fetchval("SELECT updated_at FROM main_state WHERE id = 1")
     return {"updatedAt": v}
 
 
-# ----------------------------- WRITE -----------------------------
+# ----------------------------- WRITE (auth) -----------------------------
 _MAIN_COLS = {
     "lovePercent": "love_percent", "madeUp": "made_up", "madeUpAt": "made_up_at",
     "photo": "photo", "shart": "shart", "shartAt": "shart_at", "bucket": "bucket",
@@ -158,115 +142,98 @@ _MAIN_COLS = {
 
 
 @app.patch("/api/main")
-async def patch_main(request: Request, x_auth: str | None = Header(default=None)):
-    check_auth(x_auth)
-    body = await request.json()
-    stamp = int(body.get("updatedAt") or now_ms())
+async def patch_main(body: MainPatch, user: dict = Depends(auth.require_user)):
+    payload = body.model_dump(exclude_unset=True)
+    stamp = int(payload.pop("updatedAt", None) or now_ms())
     sets, vals, i = [], [], 1
     for js_key, col in _MAIN_COLS.items():
-        if js_key in body:
+        if js_key in payload:
             sets.append(f"{col} = ${i}")
-            vals.append(body[js_key])  # bucket list -> jsonb codec
+            vals.append(payload[js_key])
             i += 1
     sets.append(f"updated_at = ${i}")
     vals.append(stamp)
-    async with pool.acquire() as c:
+    async with db.pool.acquire() as c:
         await c.execute(f"UPDATE main_state SET {', '.join(sets)} WHERE id = 1", *vals)
-    broadcast()
+    sse.broadcast()
     return {"ok": True, "updatedAt": stamp}
 
 
 @app.put("/api/bucket")
-async def put_bucket(request: Request, x_auth: str | None = Header(default=None)):
-    check_auth(x_auth)
-    body = await request.json()
-    bucket = body.get("bucket") or []
+async def put_bucket(body: BucketIn, user: dict = Depends(auth.require_user)):
     stamp = now_ms()
-    async with pool.acquire() as c:
-        await c.execute("UPDATE main_state SET bucket = $1, updated_at = $2 WHERE id = 1", bucket, stamp)
-    broadcast()
+    async with db.pool.acquire() as c:
+        await c.execute("UPDATE main_state SET bucket = $1, updated_at = $2 WHERE id = 1", body.bucket, stamp)
+    sse.broadcast()
     return {"ok": True, "updatedAt": stamp}
 
 
 @app.post("/api/memory")
-async def upsert_memory(request: Request, x_auth: str | None = Header(default=None)):
-    check_auth(x_auth)
-    e = await request.json()
-    if not e.get("id"):
-        raise HTTPException(status_code=400, detail="id required")
+async def upsert_memory(body: MemoryIn, user: dict = Depends(auth.require_user)):
     stamp = now_ms()
-    async with pool.acquire() as c:
+    async with db.pool.acquire() as c:
         await c.execute(
             """INSERT INTO memories (id, date_key, body, photo, author, at)
                VALUES ($1,$2,$3,$4,$5,$6)
                ON CONFLICT (id) DO UPDATE SET
                  date_key=EXCLUDED.date_key, body=EXCLUDED.body, photo=EXCLUDED.photo,
                  author=EXCLUDED.author, at=EXCLUDED.at""",
-            str(e["id"]), e.get("dateKey"), e.get("text") or "", e.get("photo"),
-            e.get("author") or "", int(e.get("at") or 0),
+            body.id, body.dateKey, body.text or "", body.photo, body.author or "", int(body.at or 0),
         )
         await c.execute("UPDATE main_state SET updated_at = $1 WHERE id = 1", stamp)
-    broadcast()
+    sse.broadcast()
     return {"ok": True}
 
 
 @app.delete("/api/memory/{mid}")
-async def delete_memory(mid: str, x_auth: str | None = Header(default=None)):
-    check_auth(x_auth)
-    async with pool.acquire() as c:
+async def delete_memory(mid: str, user: dict = Depends(auth.require_user)):
+    async with db.pool.acquire() as c:
         await c.execute("DELETE FROM memories WHERE id = $1", mid)
         await c.execute("UPDATE main_state SET updated_at = $1 WHERE id = 1", now_ms())
-    broadcast()
+    sse.broadcast()
     return {"ok": True}
 
 
 @app.post("/api/chat")
-async def add_chat(request: Request, x_auth: str | None = Header(default=None)):
-    check_auth(x_auth)
-    m = await request.json()
-    if not m.get("id"):
-        raise HTTPException(status_code=400, detail="id required")
+async def add_chat(body: ChatIn, user: dict = Depends(auth.require_user)):
     stamp = now_ms()
-    async with pool.acquire() as c:
+    author = user["display"]  # chat muallifi — sessiyadan (spoofing bo'lmasin)
+    async with db.pool.acquire() as c:
         await c.execute(
             """INSERT INTO chat (id, body, author, at) VALUES ($1,$2,$3,$4)
                ON CONFLICT (id) DO UPDATE SET body=EXCLUDED.body, author=EXCLUDED.author, at=EXCLUDED.at""",
-            str(m["id"]), m.get("text") or "", m.get("author") or "", int(m.get("at") or 0),
+            body.id, body.text or "", author, int(body.at or 0),
         )
         await c.execute("UPDATE main_state SET updated_at = $1 WHERE id = 1", stamp)
-    broadcast()
+    sse.broadcast()
     return {"ok": True}
 
 
 @app.delete("/api/chat/{cid}")
-async def delete_chat(cid: str, x_auth: str | None = Header(default=None)):
-    check_auth(x_auth)
-    async with pool.acquire() as c:
+async def delete_chat(cid: str, user: dict = Depends(auth.require_user)):
+    async with db.pool.acquire() as c:
         await c.execute("DELETE FROM chat WHERE id = $1", cid)
         await c.execute("UPDATE main_state SET updated_at = $1 WHERE id = 1", now_ms())
-    broadcast()
+    sse.broadcast()
     return {"ok": True}
 
 
 @app.post("/api/chat/clear")
-async def clear_chat(x_auth: str | None = Header(default=None)):
-    check_auth(x_auth)
-    async with pool.acquire() as c:
+async def clear_chat(user: dict = Depends(auth.require_user)):
+    async with db.pool.acquire() as c:
         await c.execute("DELETE FROM chat")
         await c.execute("UPDATE main_state SET updated_at = $1 WHERE id = 1", now_ms())
-    broadcast()
+    sse.broadcast()
     return {"ok": True}
 
 
 @app.post("/api/restore")
-async def restore(request: Request, x_auth: str | None = Header(default=None)):
-    """To'liq ma'lumotni almashtirish (backup'dan tiklash / seed)."""
-    check_auth(x_auth)
+async def restore(request: Request, user: dict = Depends(auth.require_user)):
     d = await request.json()
-    if isinstance(d.get("data"), dict):   # {_app, data:{...}} ko'rinishini ham qabul qilamiz
+    if isinstance(d.get("data"), dict):
         d = d["data"]
     stamp = int(d.get("updatedAt") or now_ms())
-    async with pool.acquire() as c:
+    async with db.pool.acquire() as c:
         async with c.transaction():
             await c.execute(
                 """UPDATE main_state SET love_percent=$1, made_up=$2, made_up_at=$3,
@@ -297,38 +264,20 @@ async def restore(request: Request, x_auth: str | None = Header(default=None)):
                        ON CONFLICT (id) DO UPDATE SET body=EXCLUDED.body, author=EXCLUDED.author, at=EXCLUDED.at""",
                     str(m["id"]), m.get("text") or "", m.get("author") or "", int(m.get("at") or 0),
                 )
-    broadcast()
+    sse.broadcast()
     return {"ok": True, "updatedAt": stamp}
 
 
-# ----------------------------- SSE (real-time) -----------------------------
+# ----------------------------- SSE (auth) -----------------------------
 @app.get("/api/events")
-async def events(request: Request):
-    q: asyncio.Queue = asyncio.Queue()
-    subscribers.add(q)
-
-    async def gen():
-        try:
-            yield "retry: 3000\n\n"
-            yield "event: hello\ndata: {}\n\n"
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    await asyncio.wait_for(q.get(), timeout=20)
-                    yield "event: update\ndata: {}\n\n"
-                except asyncio.TimeoutError:
-                    yield ": keepalive\n\n"   # ulanishni tirik tutadi
-        finally:
-            subscribers.discard(q)
-
+async def events(request: Request, user: dict = Depends(auth.require_user)):
     return StreamingResponse(
-        gen(),
+        sse.event_stream(request),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 
-# ----------------------------- STATIC (oxirida mount qilinadi) -----------------------------
-if os.path.isdir(STATIC_DIR):
-    app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+# ----------------------------- STATIC (oxirida) -----------------------------
+if os.path.isdir(settings.STATIC_DIR):
+    app.mount("/", StaticFiles(directory=settings.STATIC_DIR, html=True), name="static")

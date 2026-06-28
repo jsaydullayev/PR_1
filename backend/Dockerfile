@@ -8,8 +8,8 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Backend kodi
-COPY backend/main.py .
+# Backend kodi (barcha modullar)
+COPY backend/config.py backend/db.py backend/auth.py backend/sse.py backend/main.py ./
 
 # Statik frontend (faqat kerakli fayllar — .git/backend/backup'lar EMAS)
 RUN mkdir -p /srv/static

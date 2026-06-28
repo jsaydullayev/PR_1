@@ -1,100 +1,98 @@
-# Parizoda — server deploy (FastAPI + PostgreSQL + Docker)
+# Parizoda — server deploy (FastAPI + PostgreSQL + Auth + Docker)
 
-Ma'lumot endi **serverdagi PostgreSQL** bazasida saqlanadi. Backend — **FastAPI**
-(Python). O'zgarish bo'lganda **SSE** (`/api/events`) orqali ikkala qurilmada
-**darhol** ko'rinadi. Statik sayt va API bitta portda (**8090**) beriladi.
+Ma'lumot **serverdagi PostgreSQL**'da. Backend — **FastAPI** (Python), modulli
+(`config/db/auth/sse/main`). **Cookie-sessiya autentifikatsiya** (parollar serverda
+pbkdf2 bilan hashlanadi). O'zgarish **SSE** orqali ikkala qurilmada darhol ko'rinadi.
+Statik sayt + API bitta portda (**8090**). Avtomatik kunlik **backup**.
 
 ```
-Brauzer ──HTTP──> :8090 ──> FastAPI (app konteyner)
-                              ├── /            -> statik sayt (index.html, js, css)
-                              ├── /api/state   -> to'liq ma'lumot (o'qish)
-                              ├── /api/main|memory|chat|bucket -> yozish
-                              ├── /api/events  -> SSE (real-time push)
-                              └──> PostgreSQL (db konteyner, pgdata volume)
+Browser ──(cookie sessiya)──> FastAPI :8090
+   ├── /                 statik sayt (login shu yerda)
+   ├── /api/login,/me    auth (parol -> pbkdf2)
+   ├── /api/state,...    barcha ma'lumot — SESSIYA TALAB qilinadi
+   ├── /api/events       SSE real-time (sessiya talab)
+   └──> PostgreSQL (pgdata volume)  +  backup servis (./backups)
 ```
 
-## 1-qadam — serverda ishga tushirish
+## 1-qadam — `.env` yarating (sirlar)
 
-Serverda (158.220.123.53), loyiha papkasida:
+Serverda, loyiha papkasida:
+```bash
+cp .env.example .env
+nano .env
+```
+To'ldiring:
+- `POSTGRES_PASSWORD` — kuchli parol
+- `SESSION_SECRET` — `openssl rand -hex 32` natijasi
+- `PARI_USERS` — `parizoda:PAROL1:Паризода,jaxongir:PAROL2:Жаҳонгир` (parollarni o'zgartiring!)
+- `COOKIE_SECURE` — HTTPS bo'lsa `1`, oddiy HTTP bo'lsa `0`
+
+> `.env` git'ga tushmaydi (`.gitignore`). Parolni o'zgartirsangiz `docker compose up -d` qayta ishga tushiring — `users` jadvali yangilanadi.
+
+## 2-qadam — ishga tushirish
 
 ```bash
 git pull
+# Eski :8090 serverni to'xtating (agar bo'lsa):
+docker ps                      # 8090 dagi konteynerni toping
+docker stop <eski_konteyner>
+# Yangi stack:
 docker compose up -d --build
+docker compose ps              # db (healthy) + app + backup
+curl http://localhost:8090/api/health    # {"ok":true}
 ```
 
-Bu 2 ta konteyner ko'taradi:
-- **db** — PostgreSQL 16 (ma'lumot `pgdata` volume'da, qayta ishga tushganda saqlanadi)
-- **app** — FastAPI (API + SSE + statik sayt), `:8090` da
+3 konteyner ko'tariladi: **db** (Postgres 16), **app** (FastAPI), **backup** (kunlik pg_dump → `./backups`).
 
-Tekshirish:
+## 3-qadam — ma'lumotni yuklash (bir marta)
+
+Login qilib UI'dagi "backup → Restore" orqali, yoki API orqali (avval login qilib cookie oling):
 ```bash
-docker compose ps
-curl http://localhost:8090/api/health      # {"ok":true}
-```
-
-> ⚠️ Agar :8090 ni avval boshqa konteyner/server band qilgan bo'lsa, uni
-> to'xtating (`docker ps` -> `docker stop <eski>`), so'ng `docker compose up -d`.
-
-## 2-qadam — ma'lumotni bazaga yuklash (bir marta)
-
-Baza bo'sh ishga tushadi. Mavjud to'liq ma'lumot (backup) `POST /api/restore`
-orqali yuklanadi. Buni ishlab chiquvchi (men) bajaraman, yoki o'zingiz:
-
-```bash
-curl -X POST http://localhost:8090/api/restore \
+# login (cookie faylga saqlanadi)
+curl -c cookies.txt -X POST http://localhost:8090/api/login \
   -H "Content-Type: application/json" \
-  -H "X-Auth: pari-2026-7f3a9c" \
+  -d '{"username":"parizoda","password":"<.env dagi parol>"}'
+# restore (cookie bilan)
+curl -b cookies.txt -X POST http://localhost:8090/api/restore \
+  -H "Content-Type: application/json" \
   --data-binary @backup-YYYY-MM-DD.json
 ```
 
-Tekshirish: `curl http://localhost:8090/api/state` — lovePercent, memories ko'rinadi.
+## Auth qanday ishlaydi
 
-## Sozlamalar (docker-compose.yml)
+- Parollar `.env` (`PARI_USERS`) dan olinib, startda **pbkdf2-sha256** bilan hashlanib `users` jadvaliga yoziladi (ochiq parol saqlanmaydi).
+- `POST /api/login` → to'g'ri bo'lsa **httpOnly cookie** (`pari_session`) beriladi; sessiya `sessions` jadvalida (muddati `SESSION_TTL_DAYS`).
+- **Barcha** `/api/*` (login/me/health'dan tashqari) — o'qish va SSE ham — sessiyani talab qiladi. Havolaga ega begona kishi endi ma'lumotni ko'ra olmaydi.
+- Kirish urinishlari cheklangan (`LOGIN_MAX_FAILS`/`LOGIN_LOCK_SECONDS`).
 
-| O'zgaruvchi | Qiymat | Izoh |
-|---|---|---|
-| POSTGRES_PASSWORD | `pari_secret_2026` | DB paroli (o'zgartirsangiz `DATABASE_URL` ham) |
-| API_TOKEN | `pari-2026-7f3a9c` | Yozish uchun token. **`index.html`dagi `PARI_API_TOKEN` bilan bir xil bo'lishi shart** |
-| ports | `8090:8090` | tashqi port |
+## HTTPS (tavsiya — domen kerak)
 
-> 🔐 Yozish (POST/PATCH/DELETE) `X-Auth` tokenini talab qiladi. O'qish (`/api/state`,
-> SSE) ochiq. Token `index.html`da ko'rinadi (statik sayt) — bu login paroli kabi
-> "yengil" himoya. **Saytni faqat ikkangiz biling.** Kuchliroq kerak bo'lsa — ayting,
-> to'liq autentifikatsiya (sessiya/parol) qo'shamiz.
+Hozir oddiy `http://158.220.123.53:8090`. HTTPS uchun domen kerak:
+1. Domen oling, DNS A-yozuvi `158.220.123.53` ga.
+2. `Caddyfile.example` → `Caddyfile`, domeningizni yozing.
+3. `docker-compose`ga `caddy` servisi qo'shing (`reverse_proxy app:8090`, portlar 80/443).
+4. `.env`da `COOKIE_SECURE=1`.
 
-## Yangilanish (kod o'zgarganda)
+Caddy avtomatik Let's Encrypt sertifikat oladi. **Domen bo'lmasa** — saytda HTTPS yo'q, shuning uchun **havolani maxfiy tuting**.
 
-```bash
-git pull && docker compose up -d --build
-```
-Ma'lumot (`pgdata` volume) saqlanib qoladi — faqat kod yangilanadi.
+## Backup va tiklash
 
-## Zaxira (backup)
+- **Avtomatik:** `backup` servisi har 24s'da `pg_dump` → `./backups/parizoda-<sana>.sql` (7 kundan eskisi o'chadi).
+- **Qo'lda dump:** `docker compose exec db pg_dump -U pari parizoda > dump.sql`
+- **Tiklash:** `cat dump.sql | docker compose exec -T db psql -U pari -d parizoda`
+- **UI/JSON:** "backup" tugmasi → Restore → `/api/restore`.
 
-PostgreSQL dump:
-```bash
-docker compose exec db pg_dump -U pari parizoda > parizoda-$(date +%F).sql
-```
-Tiklash:
-```bash
-cat parizoda-XXXX.sql | docker compose exec -T db psql -U pari -d parizoda
-```
-Saytdagi "backup" tugmasi ham ishlaydi (JSON eksport/import — `/api/restore`ga yozadi).
-
-## Foydali buyruqlar
+## Yangilanish
 
 ```bash
-docker compose logs -f app      # backend loglari
-docker compose logs -f db       # postgres loglari
-docker compose restart app      # faqat app
-docker compose down             # to'xtatish (ma'lumot saqlanadi)
-docker compose down -v          # to'xtatish + MA'LUMOTNI O'CHIRISH (ehtiyot!)
+git pull && docker compose up -d --build   # ma'lumot (pgdata) saqlanadi
 ```
 
-## Lokal sinov (ixtiyoriy)
+## Foydali
 
-O'z kompyuteringizda ham aynan shu bilan ishlatish mumkin:
 ```bash
-docker compose up -d --build
-# http://localhost:8090
+docker compose logs -f app       # backend loglari
+docker compose logs -f backup    # backup loglari
+docker compose down              # to'xtatish (ma'lumot saqlanadi)
+docker compose down -v           # + MA'LUMOTNI O'CHIRISH (ehtiyot!)
 ```
