@@ -9,6 +9,8 @@ def _bool(v: str) -> bool:
 class Settings:
     DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://pari:pari@db:5432/parizoda")
     STATIC_DIR = os.environ.get("STATIC_DIR", "/srv/static")
+    MEDIA_DIR = os.environ.get("MEDIA_DIR", "/srv/media")          # yuklangan musiqa shu yerda
+    MAX_MUSIC = int(os.environ.get("MAX_MUSIC", str(20 * 1024 * 1024)))  # ~20MB audio
 
     # Sessiya (cookie) sozlamalari
     SESSION_SECRET = os.environ.get("SESSION_SECRET", "")          # bo'sh bo'lsa startda tasodifiy

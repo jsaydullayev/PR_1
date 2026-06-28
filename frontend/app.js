@@ -330,6 +330,21 @@ function stopMusic() {
 if (musicBtn) {
   musicBtn.addEventListener('click', () => { musicOn ? stopMusic() : startMusic(); });
 }
+
+/* server'dan kelgan musiqa (Jaxongir panelidan almashtirilsa) — barcha qurilmada yangilanadi */
+let currentMusicSrc = SONG_SRC;
+window.PJSetMusic = function (url) {
+  const next = url || SONG_SRC;
+  if (next === currentMusicSrc) return;
+  currentMusicSrc = next;
+  const wasPlaying = musicOn;
+  try { songAudio.src = next; songAudio.load(); songOk = true; } catch (e) {}
+  if (wasPlaying) {
+    const p = songAudio.play();
+    if (p && p.then) p.then(() => { stopSynth(); setPlayingUI(true); }).catch(() => {});
+  }
+};
+
 /* music hint peek */
 setTimeout(() => musicHint && musicHint.classList.add('show'), 1800);
 setTimeout(() => musicHint && musicHint.classList.remove('show'), 6000);

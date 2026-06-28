@@ -17,10 +17,12 @@ CREATE TABLE IF NOT EXISTS main_state (
   shart       text,
   shart_at    bigint,
   bucket      jsonb DEFAULT '[]'::jsonb,
+  music       text,
   updated_at  bigint DEFAULT 0,
   CONSTRAINT main_state_single CHECK (id = 1)
 );
 INSERT INTO main_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+ALTER TABLE main_state ADD COLUMN IF NOT EXISTS music text;
 
 CREATE TABLE IF NOT EXISTS memories (
   id       text PRIMARY KEY,
@@ -103,6 +105,7 @@ async def build_state(c: asyncpg.Connection) -> dict:
         "photo": row["photo"],
         "shart": row["shart"],
         "shartAt": row["shart_at"],
+        "music": row["music"],
         "bucket": row["bucket"] or [],
         "memories": memmap,
         "chat": [{"id": x["id"], "text": x["body"] or "", "author": x["author"] or "", "at": x["at"] or 0} for x in chats],

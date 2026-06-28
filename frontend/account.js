@@ -12,7 +12,7 @@
 
   /* ---------- STORE: server (FastAPI + PostgreSQL) + SSE ---------- */
   const Store = (function () {
-    const BLANK = { lovePercent: null, madeUp: false, madeUpAt: null, photo: null, shart: null, shartAt: null, memories: {}, bucket: [], chat: [], updatedAt: null };
+    const BLANK = { lovePercent: null, madeUp: false, madeUpAt: null, photo: null, shart: null, shartAt: null, music: null, memories: {}, bucket: [], chat: [], updatedAt: null };
     let data = Object.assign({}, BLANK, { memories: {}, bucket: [], chat: [] });
     let cb = null;
     const mode = 'server';
@@ -94,6 +94,13 @@
       });
     }
 
+    // ---------- musiqa (fayl yuklash, serverda saqlanadi) ----------
+    function uploadMusic(file) {
+      var fd = new FormData(); fd.append('file', file);
+      return fetch(API + '/api/music', { method: 'POST', credentials: 'same-origin', body: fd })
+        .then(function (r) { if (r.status === 401) { handle401(); throw new Error('401'); } if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+    }
+
     // ---------- xotiralar ----------
     function addMemory(dateKey, entry) {
       normalize();
@@ -153,6 +160,7 @@
       setAnswer: function (a) { patch(a); },
       setPhoto: function (url) { patch({ photo: url }); },
       setShart: function (text) { patch({ shart: text, shartAt: Date.now() }); },
+      uploadMusic: uploadMusic,
       getMemories: function () { normalize(); return data.memories; },
       addMemory: addMemory, updateMemory: updateMemory, deleteMemory: deleteMemory,
       getBucket: function () { normalize(); return data.bucket; },
@@ -403,6 +411,7 @@
   /* ---------- har bir data o'zgarganda ---------- */
   function onData() {
     renderPhoto();
+    if (window.PJSetMusic) window.PJSetMusic(Store.get().music); // serverdagi musiqa o'zgarsa yangilaymiz
     if (document.body.classList.contains('as-jaxongir')) renderDashboard();
     if (document.body.classList.contains('as-parizoda')) preloadSlider();
   }
@@ -423,6 +432,9 @@
     Store.setAuthHandler(showLogin); // sessiya tugasa login ekranига qaytamiz
     window.PJ = {
       setShart: function (t) { Store.setShart(t); },
+      get: function () { return Store.get(); },
+      uploadMusic: function (file) { return Store.uploadMusic(file); },
+      setPhotoFile: async function (file) { var url = await compressImage(file); Store.setPhoto(url); },
       getMemories: function () { return Store.getMemories(); },
       addMemory: function (k, e) { Store.addMemory(k, e); },
       updateMemory: function (k, id, f) { Store.updateMemory(k, id, f); },

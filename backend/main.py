@@ -7,7 +7,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Request, Response, HTTPException, Depends
+from fastapi import FastAPI, Request, Response, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -305,6 +305,42 @@ async def restore(request: Request, user: dict = Depends(auth.require_user)):
     return {"ok": True, "updatedAt": stamp}
 
 
+# ----------------------------- MUSIQA (fayl yuklash, auth) -----------------------------
+_AUDIO_EXT = (".mp3", ".m4a", ".ogg", ".wav", ".aac")
+
+
+@app.post("/api/music")
+async def upload_music(file: UploadFile = File(...), user: dict = Depends(auth.require_user)):
+    fname = (file.filename or "").lower()
+    ct = (file.content_type or "")
+    if not (ct.startswith("audio/") or fname.endswith(_AUDIO_EXT)):
+        raise HTTPException(status_code=415, detail="audio file required")
+    data = await file.read(settings.MAX_MUSIC + 1)
+    if len(data) > settings.MAX_MUSIC:
+        raise HTTPException(status_code=413, detail="file too large")
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+    ext = os.path.splitext(fname)[1]
+    if ext not in _AUDIO_EXT:
+        ext = ".mp3"
+    os.makedirs(settings.MEDIA_DIR, exist_ok=True)
+    name = f"song-{now_ms()}{ext}"
+    with open(os.path.join(settings.MEDIA_DIR, name), "wb") as f:
+        f.write(data)
+    url = "/media/" + name
+    stamp = now_ms()
+    async with db.pool.acquire() as c:
+        old = await c.fetchval("SELECT music FROM main_state WHERE id = 1")
+        await c.execute("UPDATE main_state SET music = $1, updated_at = $2 WHERE id = 1", url, stamp)
+    if old and old.startswith("/media/"):  # eski faylni o'chiramiz
+        try:
+            os.remove(os.path.join(settings.MEDIA_DIR, os.path.basename(old)))
+        except Exception:
+            pass
+    sse.broadcast()
+    return {"ok": True, "music": url}
+
+
 # ----------------------------- SSE (auth) -----------------------------
 @app.get("/api/events")
 async def events(request: Request, user: dict = Depends(auth.require_user)):
@@ -315,6 +351,8 @@ async def events(request: Request, user: dict = Depends(auth.require_user)):
     )
 
 
-# ----------------------------- STATIC (oxirida) -----------------------------
+# ----------------------------- MEDIA + STATIC (oxirida) -----------------------------
+os.makedirs(settings.MEDIA_DIR, exist_ok=True)
+app.mount("/media", StaticFiles(directory=settings.MEDIA_DIR), name="media")
 if os.path.isdir(settings.STATIC_DIR):
     app.mount("/", StaticFiles(directory=settings.STATIC_DIR, html=True), name="static")
